@@ -2,7 +2,9 @@
 
 This is the official implementation of the paper **Modeling Musical Knowledge with Quantum Bayesian Networks**, presented at the *International Conference on Content-based Multimedia Indexing* in Reykjavik in September 2024 [Krebs2024].
 
-In the code, a discrete Bayesian network is first translated into a Bayesian network with only binary nodes and then translated to a Quantum circuit. Then, queries of the form $P(X | Y)$ can be computed using Quantum Rejection Sampling and the amplitude amplification algorithm as described by [Low2014].
+In the code, a discrete Bayesian network is first translated into a Bayesian network with only binary nodes and then translated to a Quantum circuit. Then, queries of the form $P(X | Y)$ can be computed using Quantum Rejection Sampling and the amplitude amplification algorithm as described by [Low2014]. The Bayesian network in the paper looks like this:
+
+<img src="figs/bn.png" style="zoom: 30%;" />
 
 
 ## Setup
@@ -60,7 +62,9 @@ Execute
 python perform_experiment2.py
 ```
 
-to create Figure 4 in the paper, comparing circuit depth and acceptance ratio of a circuit with and without amplitude amplification.
+to create Figure 4 in the paper, comparing circuit depth and acceptance ratio of a circuit with and without amplitude amplification. The results should look like this:
+
+<img src="figs/fig4_results.png" style="zoom: 30%;" />
 
 ## Errata
 
@@ -69,7 +73,8 @@ Unfortunately, in the paper, Query3 in Table 3 is wrong. The correct query shoul
 $P(Artist=Ella Fitzgerald | Genre=Jazz, Mode=major)$, and its exact probability is 0.49.
 
 ## References
-[Krebs2024]  Krebs, Florian, Hermann Fuerntratt, Roland Unterberger, and Franz Graf. "Modeling Musical Knowledge with Quantum Bayesian Networks." Proceedings of the International Conference on Content-based Multimedia Indexing (2024) 
+[Krebs2024]  Krebs, Florian, Hermann Fuerntratt, Roland Unterberger, and Franz Graf. "Modeling Musical Knowledge with Quantum Bayesian Networks." Proceedings of the International Conference on Content-based Multimedia Indexing (2024)
+
 [Low2014]	 Low, Guang Hao, Theodore J. Yoder, and Isaac L. Chuang. "Quantum inference on Bayesian networks." Physical Review A 89.6 (2014): 062315.
 
 
