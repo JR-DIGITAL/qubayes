@@ -4,7 +4,7 @@ This is the official implementation of the paper **Modeling Musical Knowledge wi
 
 In the code, a discrete Bayesian network is first translated into a Bayesian network with only binary nodes and then translated to a Quantum circuit. Then, queries of the form $P(X | Y)$ can be computed using Quantum Rejection Sampling and the amplitude amplification algorithm as described by [Low2014]. The Bayesian network in the paper looks like this:
 
-<img src="figs/bn.png" style="zoom: 30%;" />
+<img src="figs/bn.png" width="300"/>
 
 
 ## Setup
@@ -13,7 +13,8 @@ In the code, a discrete Bayesian network is first translated into a Bayesian net
 # Create conda environment
 conda create -n qubayes python=3.12
 conda activate qubayes
-git clone ...
+git clone https://github.com/JR-DIGITAL/qubayes.git
+cd qubayes
 pip install -r requirements.txt
 pip install -e .
 ```
@@ -64,7 +65,7 @@ python perform_experiment2.py
 
 to create Figure 4 in the paper, comparing circuit depth and acceptance ratio of a circuit with and without amplitude amplification. The results should look like this:
 
-<img src="figs/fig4_results.png" style="zoom: 30%;" />
+<img src="figs/fig4_results.png" width="500"/>
 
 ## Errata
 
