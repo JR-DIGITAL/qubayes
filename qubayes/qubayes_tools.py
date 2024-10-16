@@ -31,7 +31,7 @@ from qubayes.config import MODEL_FLN
 from qubayes.dataset_stats import MusicDataset
 
 
-def run_circuit(circuit, draw_circuit=True, use_sim=True, shots=1024, verbose=False, seed=42):
+def run_circuit(circuit, draw_circuit=False, use_sim=True, shots=1024, verbose=False, seed=42):
 
     if use_sim:
         # simulator = Aer.get_backend('qasm_simulator')
@@ -192,13 +192,12 @@ class QBN:
         if self.qc is None:
             qc = QuantumCircuit(needed_qbits)
 
-        # PARENTLESS/ROOT NODES
-        # loop and find the parentless/root nodes, assign their rotations first
         for name, node in self.graph.nodes.items():
             if node.name in bit_assignment.keys():
                 continue
             n_parents = len(node.parents)
             if not node.has_parents():
+                # loop and find the parentless/root nodes, assign their rotations first
                 assert node.n_states <= 2
                 # root node has 2 states, simple controlled rotate
                 qc.ry(angle_from_probability(node.data[0], node.data[1]), next_free_qbit)
@@ -207,7 +206,6 @@ class QBN:
                 next_free_qbit += 1
             else:
                 bit_assignment, next_free_qbit, target_qbits = assign_bits(node, bit_assignment, next_free_qbit)
-
                 # get all combinations of parent states, e.g.  (0,0), (0,1), (1,0), (1,1)
                 parent_state_total = get_parents_states(node)
                 parent_qubits = []
@@ -262,7 +260,6 @@ def assign_bits(node, bit_assignment, next_free_qbit):
         bit_assignment[node.name] = next_free_qbit
         target_qbits = [next_free_qbit]
         next_free_qbit += 1
-
     else:
         # node has 2+ states
         needed_qbits = ceil(log2(len(node.states)))
@@ -304,6 +301,7 @@ class Node:
             self.n_states = None
         else:
             self.n_states = len(states)
+        # TODO: check if probability is valid
 
     def has_parents(self):
         return len(self.parents) > 0
@@ -468,6 +466,8 @@ class Graph:
                     for p_ext in range(max([1, 2 * node.n_parents()])):
                         bin_state_ext = [int(d) for d in str(bin(p_ext))[2:].zfill(node.n_parents())]
                         state_tuple_0 = tuple(bin_state_ext) + tuple([0])
+                        # TODO: node.data can be of ndim > 2, if there was more
+                        #  than one parent in the original (non-binarized) graph
                         prob[state_tuple_0] = node.data[0, p_ext]
                         state_tuple_1 = tuple(bin_state_ext) + tuple([1])
                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
@@ -481,18 +481,16 @@ class Graph:
     def sample_from_graph(self, n_samples):
         samples = np.zeros((len(self.nodes), n_samples), dtype=int)
         names = list(self.nodes.keys())
-        c = 0
-        for name, node in self.nodes.items():
+        for c, (name, node) in enumerate(self.nodes.items()):
             n_bins = node.data.shape[0]
             if node.has_parents():
-                if len(node.parents) > 1:
-                    raise NotImplementedError('Not yet implemented')
-                parent_idx = names.index(node.parents[0])
                 for i in range(n_samples):
-                    samples[c, i] = np.random.choice(n_bins, p=node.data[:, samples[parent_idx, i]])
+                    prob = deepcopy(node.data)
+                    for p in node.parents:
+                        prob = prob[samples[names.index(p), i], :]
+                    samples[c, i] = np.random.choice(n_bins, p=prob)
             else:
                 samples[c, :] = np.random.choice(n_bins, size=n_samples, p=node.data, replace=True)
-            c += 1
         return samples, names
 
 
