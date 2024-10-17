@@ -10,8 +10,8 @@ from qubayes.qubayes_tools import Query, Node, QBN, Graph
 
 def create_graph():
     cloudy = Node('cloudy', data=np.array([0.5, 0.5]))
-    sprinkler = Node('sprinkler', data=np.array([[0.5, 0.5],    # C=0
-                                                 [0.9, 0.1]]),  # C=1
+    sprinkler = Node('sprinkler', data=np.array([[0.5, 0.9],    # C=0
+                                                 [0.5, 0.1]]),  # C=1
                      parents=['cloudy'])
     rain = Node('rain', data=np.array([[0.8, 0.2],    # C=0
                                        [0.2, 0.8]]),  # C=1

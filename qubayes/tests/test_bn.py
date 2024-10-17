@@ -44,10 +44,10 @@ class MyTestCase(unittest.TestCase):
                                graph.nodes[names[1]].data[0, 0])
         self.assertAlmostEqual(probs[1],
                                graph.nodes[names[0]].data[0] *
-                               graph.nodes[names[1]].data[0, 1])
+                               graph.nodes[names[1]].data[1, 0])
         self.assertAlmostEqual(probs[2],
                                graph.nodes[names[0]].data[1] *
-                               graph.nodes[names[1]].data[1, 0])
+                               graph.nodes[names[1]].data[0, 1])
         self.assertAlmostEqual(probs[3],
                                graph.nodes[names[0]].data[1] *
                                graph.nodes[names[1]].data[1, 1])
@@ -67,15 +67,15 @@ class MyTestCase(unittest.TestCase):
         self.assertAlmostEqual(probs[1],
                                graph.nodes[names[0]].data[0] *
                                graph.nodes[names[1]].data[0, 0] *
-                               graph.nodes[names[2]].data[0, 0, 1])
+                               graph.nodes[names[2]].data[1, 0, 0])
         self.assertAlmostEqual(probs[4],
                                graph.nodes[names[0]].data[1] *
-                               graph.nodes[names[1]].data[1, 0] *
-                               graph.nodes[names[2]].data[1, 0, 0])
+                               graph.nodes[names[1]].data[0, 1] *
+                               graph.nodes[names[2]].data[0, 1, 0])
         self.assertAlmostEqual(probs[5],
                                graph.nodes[names[0]].data[1] *
-                               graph.nodes[names[1]].data[1, 0] *
-                               graph.nodes[names[2]].data[1, 0, 1])
+                               graph.nodes[names[1]].data[0, 1] *
+                               graph.nodes[names[2]].data[1, 1, 0])
 
     def test_binarize_cpd_4_states(self):
         probs_a = np.array([0.21, 0.79])
@@ -97,11 +97,11 @@ class MyTestCase(unittest.TestCase):
                                graph.nodes[names[1]].data[0, 0] *
                                graph.nodes[names[2]].data[0, 0, 0])
         self.assertAlmostEqual(probs_b[0, 1],
-                               graph.nodes[names[1]].data[1, 0] *
-                               graph.nodes[names[2]].data[0, 1, 0])
-        self.assertAlmostEqual(probs_b[2, 1],
+                               graph.nodes[names[1]].data[0, 1] *
+                               graph.nodes[names[2]].data[0, 0, 1])
+        self.assertAlmostEqual(probs_b[2, 1],  # b=10, a=1
                                graph.nodes[names[1]].data[1, 1] *
-                               graph.nodes[names[2]].data[1, 1, 0])
+                               graph.nodes[names[2]].data[0, 1, 1])
 
     def test_binarize_cpd_2_states_with_4_state_prior(self):
         probs_a = np.array([0.21, 0.39, 0.3, 0.1])
@@ -117,8 +117,8 @@ class MyTestCase(unittest.TestCase):
         graph = Graph(nodes)
         graph.binarize()
         self.assertAlmostEqual(probs_b[0, 0], graph.nodes['B'].data[0, 0, 0])
-        self.assertAlmostEqual(probs_b[1, 1], graph.nodes['B'].data[0, 1, 1])
-        self.assertAlmostEqual(probs_b[0, 3], graph.nodes['B'].data[1, 1, 0])
+        self.assertAlmostEqual(probs_b[1, 1], graph.nodes['B'].data[1, 0, 1])
+        self.assertAlmostEqual(probs_b[0, 3], graph.nodes['B'].data[0, 1, 1])
 
     def test_binarize_cpd_4_states_with_4_state_prior(self):
         probs_a = np.array([0.21, 0.39, 0.3, 0.1])
@@ -137,19 +137,19 @@ class MyTestCase(unittest.TestCase):
         graph.binarize()
         self.assertAlmostEqual(probs_a[2],
                                graph.nodes['A.0'].data[1] *
-                               graph.nodes['A.1'].data[1, 0])
+                               graph.nodes['A.1'].data[0, 1])
         self.assertAlmostEqual(probs_b[0, 0],
                                graph.nodes['B.0'].data[0, 0, 0] *
                                graph.nodes['B.1'].data[0, 0, 0, 0])
         self.assertAlmostEqual(probs_b[0, 2],  # a state is 2 = '10'
-                               graph.nodes['B.0'].data[1, 0, 0] *
-                               graph.nodes['B.1'].data[0, 1, 0, 0])
+                               graph.nodes['B.0'].data[0, 1, 0] *
+                               graph.nodes['B.1'].data[0, 0, 1, 0])
         self.assertAlmostEqual(probs_b[2, 1],  # a state is 1 = '01'
-                               graph.nodes['B.0'].data[0, 1, 1] *
-                               graph.nodes['B.1'].data[1, 0, 1, 0])
+                               graph.nodes['B.0'].data[1, 0, 1] *
+                               graph.nodes['B.1'].data[0, 1, 0, 1])
         self.assertAlmostEqual(probs_b[2, 3],  # a state is 3 = '11'
                                graph.nodes['B.0'].data[1, 1, 1] *
-                               graph.nodes['B.1'].data[1, 1, 1, 0])
+                               graph.nodes['B.1'].data[0, 1, 1, 1])
 
 
 if __name__ == '__main__':

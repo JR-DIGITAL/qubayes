@@ -226,8 +226,12 @@ class QBN:
                     if zero_inds:
                         qc.x(zero_inds)
                     # get probability conditioned on parent_state_combo
-                    s0 = parent_state_combo + tuple([0])
-                    s1 = parent_state_combo + tuple([1])
+                    s0 = tuple([0]) + parent_state_combo
+                    s1 = tuple([1]) + parent_state_combo
+                    if node.data[s0] + node.data[s1] > 0.01:
+                        if abs(1. - (node.data[s0] + node.data[s1])) > 0.01:
+                            raise ValueError('Invalid probability')
+                        # np.testing.assert_almost_equal(node.data[s0] + node.data[s1], 1)
                     prob = angle_from_probability(node.data[s0], node.data[s1])
                     if self.use_ancillas:
                         # MCMTVChain requires ancillas but is decomposed into a much shallower circuit
@@ -283,7 +287,7 @@ class Node:
     def __init__(self, name, data=None, states=None, parents=[]):
         """
         # name:    str    name of variable
-        # data:    array  state data for the node
+        # data:    array  state data for the node of shape [targets, parents]
         # states:  dict   keys are state names, values are the int each takes on in the data
         # parents: list   strings of names of parent nodes to this node
         """
@@ -301,7 +305,13 @@ class Node:
             self.n_states = None
         else:
             self.n_states = len(states)
-        # TODO: check if probability is valid
+
+        # check if data is a valid CPT
+        if data is not None:
+            assert data.ndim - 1 == len(parents)
+            dsum = data.sum(axis=0)
+            dsum = dsum[dsum != 0]  # dsum is allowed to be 0 (if no prob data is there) or 1
+            assert dsum.astype(bool).all()
 
     def has_parents(self):
         return len(self.parents) > 0
@@ -434,22 +444,22 @@ class Graph:
                             for p in range(n_parent_states_int):
                                 bin_state = [int(d) for d in str(bin(p))[2:].zfill(i)]
                                 if node.has_parents():
-                                    state_tuple_0 = tuple(bin_state) + tuple(bin_state_ext) + tuple([0])
+                                    state_tuple_0 = tuple([0]) + tuple(bin_state) + tuple(bin_state_ext)
                                     if last_sum_temp[p] > 0:
                                         prob[state_tuple_0] = sum_temp[p * 2] / last_sum_temp[p]
-                                        state_tuple_1 = tuple(bin_state) + tuple(bin_state_ext) + tuple([1])
+                                        state_tuple_1 = tuple([1]) + tuple(bin_state) + tuple(bin_state_ext)
                                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                                 else:
-                                    state_tuple_0 = tuple(bin_state) + tuple([0])
+                                    state_tuple_0 =  tuple([0]) + tuple(bin_state)
                                     if last_sum_temp[p] > 0:
                                         prob[state_tuple_0] = sum_temp[p * 2] / last_sum_temp[p]
-                                        state_tuple_1 = tuple(bin_state) + tuple([1])
+                                        state_tuple_1 = tuple([1]) + tuple(bin_state)
                                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                         else:
                             if node.has_parents():
                                 base_prob = node.data[0:n_substates, p_ext].sum()
-                                prob[tuple(bin_state_ext) + tuple([0])] = base_prob
-                                prob[tuple(bin_state_ext) + tuple([1])] = 1 - base_prob
+                                prob[tuple([0]) + tuple(bin_state_ext)] = base_prob
+                                prob[tuple([1]) + tuple(bin_state_ext)] = 1 - base_prob
                             else:
                                 base_prob = node.data[0:n_substates].sum()
                                 prob = np.array([base_prob, 1 - base_prob])
@@ -465,11 +475,11 @@ class Graph:
                     prob = np.zeros([2] * (node.n_parents() + 1))
                     for p_ext in range(max([1, 2 * node.n_parents()])):
                         bin_state_ext = [int(d) for d in str(bin(p_ext))[2:].zfill(node.n_parents())]
-                        state_tuple_0 = tuple(bin_state_ext) + tuple([0])
+                        state_tuple_0 = tuple([0]) + tuple(bin_state_ext)
                         # TODO: node.data can be of ndim > 2, if there was more
                         #  than one parent in the original (non-binarized) graph
                         prob[state_tuple_0] = node.data[0, p_ext]
-                        state_tuple_1 = tuple(bin_state_ext) + tuple([1])
+                        state_tuple_1 = tuple([1]) + tuple(bin_state_ext)
                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                     new_node = Node(node.name, prob, parents=node.parents,
                                     states=node.states)
