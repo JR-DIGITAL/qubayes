@@ -5,7 +5,7 @@ __author__ = "Florian Krebs"
 
 import pandas as pd
 import numpy as np
-from config import DATA_FLN
+from qubayes.config import DATA_FLN
 
 
 class MusicDataset:

@@ -487,7 +487,7 @@ class Graph:
                 for i in range(n_samples):
                     prob = deepcopy(node.data)
                     for p in node.parents:
-                        prob = prob[samples[names.index(p), i], :]
+                        prob = prob[:, samples[names.index(p), i]]
                     samples[c, i] = np.random.choice(n_bins, p=prob)
             else:
                 samples[c, :] = np.random.choice(n_bins, size=n_samples, p=node.data, replace=True)

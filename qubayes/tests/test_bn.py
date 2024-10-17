@@ -7,8 +7,8 @@ class MyTestCase(unittest.TestCase):
 
     def test_graph_1(self):
         sprinkler = Node('sprinkler', data=np.array([0.5, 0.5]))
-        probs_wet = np.array([[0.5, 0.5],
-                              [0.0, 1.0]])
+        probs_wet = np.array([[0.5, 0.0],
+                              [0.5, 1.0]])
         wet = Node('wet', data=probs_wet, parents=['sprinkler'])
         bn = Graph({'sprinkler': sprinkler, 'wet': wet})
         np.random.seed(42)
@@ -18,17 +18,17 @@ class MyTestCase(unittest.TestCase):
     def test_graph_2(self):
         sprinkler = Node('sprinkler', data=np.array([0.5, 0.5]))
         rain = Node('rain', data=np.array([0.2, 0.8]))
-        probs_wet = np.array([[[1.0, 0.0],     # S=0, R=0
-                              [0.1, 0.9]],     # S=0, R=1
-                             [[0.2, 0.8],      # S=1, R=0
-                              [0.01, 0.99]]])  # S=1, R=1
+        probs_wet = np.array([[[1.0, 0.1],    # shape (wet, sprinkler, rain)
+                              [0.1, 0.01]],
+                             [[0.0, 0.9],
+                              [0.9, 0.99]]])
         wet = Node('wet', data=probs_wet, parents=['sprinkler', 'rain'])
         bn = Graph({'sprinkler': sprinkler, 'rain': rain, 'wet': wet})
         np.random.seed(42)
         samples, names = bn.sample_from_graph(5)
-        np.testing.assert_array_equal(samples, np.array([[0, 1, 1, 1, 0],   # sprinkler
-                                                         [0, 0, 1, 1, 1],   # rain
-                                                         [0, 1, 1, 1, 1]])) # wet
+        np.testing.assert_array_equal(samples, np.array([[0, 1, 1, 1, 0],    # sprinkler
+                                                         [0, 0, 1, 1, 1],    # rain
+                                                         [0, 1, 1, 1, 1]]))  # wet
 
     def test_binarize_4_states(self):
         probs = np.array([0.51, 0.11, 0.32, 0.06])
