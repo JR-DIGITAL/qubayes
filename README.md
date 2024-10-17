@@ -1,10 +1,10 @@
 # Modeling Musical Knowledge with Quantum Bayesian Networks
 
-<img src="figs/bn.png" align="right" width="270"/>This is the official implementation of the paper **Modeling Musical Knowledge with Quantum Bayesian Networks**, presented at the *International Conference on Content-based Multimedia Indexing* in Reykjavik in September 2024 [Krebs2024]. Although, the paper presents a music use case, the package can be used for other discrete Bayesian networks as well.
+This is the official implementation of the paper **Modeling Musical Knowledge with Quantum Bayesian Networks**, presented at the *International Conference on Content-based Multimedia Indexing* in Reykjavik in September 2024 [Krebs2024]. Although the paper presents a music use case, the package can be used for other discrete Bayesian networks as well.
 
 The code provides the following functionality:
 
-* Translate a discrete Bayesian network to a Quantum circuit, such that measuring the quantum circuit produces samples from the joint distribution.
+* Translate a discrete Bayesian network to a Quantum circuit inspired by [Borujeni2021], such that measuring the quantum circuit produces samples from the joint distribution.
 * Perform amplitude amplification to sample from a posterior distribution $P(X|Y)$ as described by [Low2014]. This way, inference can be performed using Quantum rejection sampling.
 
 ## Setup
@@ -45,21 +45,44 @@ python perform_experiment2.py
 ```
 to create Figure 4 in the paper, comparing circuit depth and acceptance ratio of a circuit with and without amplitude amplification. The results should look like this:
 
-<img src="figs/fig4_results.png" align="left" width="500"/>
+| Bayesian network| Classical vs. quantum rejection sampling   | 
+:-------------------------:|:----------:
+ <img src="figs/bn.png" align="center" width="300"/>| <img src="figs/fig4_results.png" align="center" width="500"/> |
 
 
 ## Apply the toolbox to custom Bayesian networks
 
-
-<img src="figs/sprinkler.png" align="right" width="270"/>The toolbox can be used with any discrete Bayesian network. In this example, we implement the famous sprinkler Bayesian network from [Kevin Murphys lecture notes](https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html). To implement the Bayesian network using the QuBayes toolbox, you first have to specify the random variables as nodes and specify the corresponding prior and conditional probability tables. 
-
-
-
+Bayesian network        |  Quantum circuit
+:-------------------------:|:-------------------------:
+<img src="figs/sprinkler.png" align="left" width="300"/>  | <img src="figs/circuit.png" align="right" width="600"/> 
 
 
 
 
-The example in the lecture notes translates to:
+The toolbox can be used with any discrete Bayesian network. In this example, we implement the famous sprinkler Bayesian network from [Kevin Murphys lecture notes](https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html). To implement the Bayesian network using the QuBayes toolbox, you first have to specify the random variables as nodes and specify the corresponding prior and conditional probability tables. The probability tables of the sprinkler model are:
+
+| Cloudy=0 | Cloudy=1 |
+| -------- | -------- |
+| 0.5      | 0.5      |
+
+| Cloudy | Sprinkler=0 | Sprinkler=1 |
+| ------ | ----------- | ----------- |
+| 0      | 0.5         | 0.5         |
+| 1      | 0.9         | 0.1         |
+
+| Cloudy | Rain=0 | Rain=1 |
+| ------ | ------ | ------ |
+| 0      | 0.8    | 0.2    |
+| 1      | 0.2    | 0.8    |
+
+| Sprinkler | Rain | Wet=0 | Wet=1 |
+| --------- | ---- | ----- | ----- |
+| 0         | 0    | 1.0   | 0.0   |
+| 1         | 0    | 0.1   | 0.9   |
+| 0         | 1    | 0.1   | 0.9   |
+| 1         | 1    | 0.01  | 0.99  |
+
+Using these probability tables, the example in the lecture notes translates to:
 
 ```
 from qubayes.qubayes_tools import Node, Graph, QBN
@@ -127,9 +150,11 @@ Unfortunately, in the paper, Query3 in Table 3 is wrong. The correct query shoul
 $P(Artist=Ella Fitzgerald | Genre=Jazz, Mode=major)$, and its exact probability is 0.49.
 
 ## References
-[Krebs2024]  Krebs, Florian, Hermann Fuerntratt, Roland Unterberger, and Franz Graf. "Modeling Musical Knowledge with Quantum Bayesian Networks." Proceedings of the International Conference on Content-based Multimedia Indexing (2024)
+[Borujeni2021]  Borujeni, S. E., Nannapaneni, S., Nguyen, N. H., Behrman, E. C., &  Steck, J. E. "Quantum circuit representation of Bayesian  networks." *Expert Systems with Applications*, *176*, (2021): 114768.
 
-[Low2014]	 Low, Guang Hao, Theodore J. Yoder, and Isaac L. Chuang. "Quantum inference on Bayesian networks." Physical Review A 89.6 (2014): 062315.
+[Krebs2024]  Krebs, Florian, Hermann Fuerntratt, Roland Unterberger, and Franz Graf. "Modeling Musical Knowledge with Quantum Bayesian Networks." *Proceedings of the International Conference on Content-based Multimedia Indexing* (2024)
+
+[Low2014]	 Low, Guang Hao, Theodore J. Yoder, and Isaac L. Chuang. "Quantum inference on Bayesian networks." *Physical Review A* 89.6 (2014): 062315.
 
 ## Contact
 

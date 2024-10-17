@@ -70,11 +70,14 @@ def main():
                                                      shots=n_shots,
                                                      seed=41)
     print(f'P(S=1|W=1)={prob:.3f} (true=0.430), acceptance ratio={acc_rate_i:.3f}')
+    QS.qbn.qc.draw(output='mpl', filename='./circuit.png')
     QS = QuerySprinkler(bn)
     prob, acc_rate_i = QS.perform_rejection_sampling(iterations=2,
                                                      shots=n_shots,
                                                      seed=41)
     print(f'P(S=1|W=1)={prob:.3f} (true=0.430), acceptance ratio={acc_rate_i:.3f}')
+
+
 
 
     return
