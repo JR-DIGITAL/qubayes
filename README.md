@@ -47,6 +47,7 @@ to create Figure 4 in the paper, comparing circuit depth and acceptance ratio of
 
 <img src="figs/fig4_results.png" align="left" width="500"/>
 
+
 ## Apply the toolbox to custom Bayesian networks
 
 <img src="figs/sprinkler.png" align="right" width="270"/>The toolbox can be used with any discrete Bayesian network. In this example, we implement the famous sprinkler Bayesian network from [Kevin Murphys lecture notes](https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html). To implement the Bayesian network using the QuBayes toolbox, you first have to specify the random variables as nodes and specify the corresponding prior and conditional probability tables. 
