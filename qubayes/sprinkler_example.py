@@ -16,10 +16,10 @@ def create_graph():
     rain = Node('rain', data=np.array([[0.8, 0.2],    # C=0
                                        [0.2, 0.8]]),  # C=1
                 parents=['cloudy'])
-    probs_wet = np.array([[[1.0, 0.0],      # S=0, R=0
-                           [0.1, 0.9]],     # S=0, R=1
-                          [[0.1, 0.9],      # S=1, R=0
-                           [0.01, 0.99]]])  # S=1, R=1
+    probs_wet = np.array([[[1.0, 0.1],  # shape (wet, sprinkler, rain)
+                           [0.1, 0.01]],
+                          [[0.0, 0.9],
+                           [0.9, 0.99]]])
     wet = Node('wet', data=probs_wet,
                parents=['sprinkler', 'rain'])
     bn = Graph({'cloudy': cloudy, 'sprinkler': sprinkler, 'rain': rain, 'wet': wet})
@@ -45,7 +45,7 @@ def main():
         if k[0] == '1' and k[2] == '1':
             P_S1W1 += v
     P_S1W1 = P_S1W1 / n_shots
-    print(f'P(S=1|W=1)={P_S1W1 / P_W1:.3f}')  # True: 0.430
+    print(f'P(S=1|W=1)={P_S1W1 / P_W1:.3f}, true=0.430')  # True: 0.430
 
     P_R1W1 = 0
     for k, v in result.items():
@@ -53,7 +53,7 @@ def main():
             P_R1W1 += v
     P_R1W1 = P_R1W1 / n_shots
 
-    print(f'P(R=1|W=1)={P_R1W1 / P_W1:.3f}')  # True: 0.708
+    print(f'P(R=1|W=1)={P_R1W1 / P_W1:.3f}, true=0.708')  # True: 0.708
 
     # Use amplitude amplification
     class QuerySprinkler(Query):
@@ -69,12 +69,12 @@ def main():
     prob, acc_rate_i = QS.perform_rejection_sampling(iterations=0,
                                                      shots=n_shots,
                                                      seed=41)
-    print(f'P(S=1|W=1)={prob:.3f}, acceptance ratio={acc_rate_i:.3f}')
+    print(f'P(S=1|W=1)={prob:.3f} (true=0.430), acceptance ratio={acc_rate_i:.3f}')
     QS = QuerySprinkler(bn)
     prob, acc_rate_i = QS.perform_rejection_sampling(iterations=2,
                                                      shots=n_shots,
                                                      seed=41)
-    print(f'P(S=1|W=1)={prob:.3f}, acceptance ratio={acc_rate_i:.3f}')
+    print(f'P(S=1|W=1)={prob:.3f} (true=0.430), acceptance ratio={acc_rate_i:.3f}')
 
 
     return
