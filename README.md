@@ -50,6 +50,7 @@ to create Figure 4 in the paper, comparing circuit depth and acceptance ratio of
 
 ## Apply the toolbox to custom Bayesian networks
 
+
 <img src="figs/sprinkler.png" align="right" width="270"/>The toolbox can be used with any discrete Bayesian network. In this example, we implement the famous sprinkler Bayesian network from [Kevin Murphys lecture notes](https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html). To implement the Bayesian network using the QuBayes toolbox, you first have to specify the random variables as nodes and specify the corresponding prior and conditional probability tables. 
 
 
@@ -63,16 +64,16 @@ The example in the lecture notes translates to:
 ```
 from qubayes.qubayes_tools import Node, Graph, QBN
 cloudy = Node('cloudy', data=np.array([0.5, 0.5]))
-sprinkler = Node('sprinkler', data=np.array([[0.5, 0.5],    # C=0
-                                             [0.9, 0.1]]),  # C=1
+sprinkler = Node('sprinkler', data=np.array([[0.5, 0.9],   
+                                             [0.5, 0.1]]), 
                  parents=['cloudy'])
-rain = Node('rain', data=np.array([[0.8, 0.2],    # C=0
-                                   [0.2, 0.8]]),  # C=1
+rain = Node('rain', data=np.array([[0.8, 0.2],    
+                                   [0.2, 0.8]]),
             parents=['cloudy'])
-probs_wet = np.array([[[1.0, 0.0],      # S=0, R=0
-                       [0.1, 0.9]],     # S=0, R=1
-                      [[0.1, 0.9],      # S=1, R=0
-                       [0.01, 0.99]]])  # S=1, R=1
+probs_wet = np.array([[[1.0, 0.1],  # shape (wet, sprinkler, rain)
+                       [0.1, 0.01]],
+                      [[0.0, 0.9],
+                       [0.9, 0.99]]])
 wet = Node('wet', data=probs_wet, parents=['sprinkler', 'rain'])
 ```
 
