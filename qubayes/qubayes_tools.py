@@ -434,22 +434,22 @@ class Graph:
                             for p in range(n_parent_states_int):
                                 bin_state = [int(d) for d in str(bin(p))[2:].zfill(i)]
                                 if node.has_parents():
-                                    state_tuple_0 = tuple(bin_state) + tuple(bin_state_ext) + tuple([0])
+                                    state_tuple_0 = tuple([0]) + tuple(bin_state) + tuple(bin_state_ext)
                                     if last_sum_temp[p] > 0:
                                         prob[state_tuple_0] = sum_temp[p * 2] / last_sum_temp[p]
-                                        state_tuple_1 = tuple(bin_state) + tuple(bin_state_ext) + tuple([1])
+                                        state_tuple_1 = tuple([1]) + tuple(bin_state) + tuple(bin_state_ext)
                                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                                 else:
-                                    state_tuple_0 = tuple(bin_state) + tuple([0])
+                                    state_tuple_0 = tuple([0]) + tuple(bin_state)
                                     if last_sum_temp[p] > 0:
                                         prob[state_tuple_0] = sum_temp[p * 2] / last_sum_temp[p]
-                                        state_tuple_1 = tuple(bin_state) + tuple([1])
+                                        state_tuple_1 = tuple([1]) + tuple(bin_state)
                                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                         else:
                             if node.has_parents():
                                 base_prob = node.data[0:n_substates, p_ext].sum()
-                                prob[tuple(bin_state_ext) + tuple([0])] = base_prob
-                                prob[tuple(bin_state_ext) + tuple([1])] = 1 - base_prob
+                                prob[tuple([0]) + tuple(bin_state_ext)] = base_prob
+                                prob[tuple([1]) + tuple(bin_state_ext)] = 1 - base_prob
                             else:
                                 base_prob = node.data[0:n_substates].sum()
                                 prob = np.array([base_prob, 1 - base_prob])

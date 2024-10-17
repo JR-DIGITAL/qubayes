@@ -10,16 +10,16 @@ from qubayes.qubayes_tools import Query, Node, QBN, Graph
 
 def create_graph():
     cloudy = Node('cloudy', data=np.array([0.5, 0.5]))
-    sprinkler = Node('sprinkler', data=np.array([[0.5, 0.5],    # C=0
-                                                 [0.9, 0.1]]),  # C=1
+    sprinkler = Node('sprinkler', data=np.array([[0.5, 0.9],    # C=0
+                                                 [0.5, 0.1]]),  # C=1
                      parents=['cloudy'])
     rain = Node('rain', data=np.array([[0.8, 0.2],    # C=0
                                        [0.2, 0.8]]),  # C=1
                 parents=['cloudy'])
-    probs_wet = np.array([[[1.0, 0.0],      # S=0, R=0
-                           [0.1, 0.9]],     # S=0, R=1
-                          [[0.1, 0.9],      # S=1, R=0
-                           [0.01, 0.99]]])  # S=1, R=1
+    probs_wet = np.array([[[1.0, 0.1],  # shape (wet, sprinkler, rain)
+                           [0.1, 0.01]],
+                          [[0.0, 0.9],
+                           [0.9, 0.99]]])
     wet = Node('wet', data=probs_wet,
                parents=['sprinkler', 'rain'])
     bn = Graph({'cloudy': cloudy, 'sprinkler': sprinkler, 'rain': rain, 'wet': wet})
@@ -27,10 +27,16 @@ def create_graph():
 
 
 def main():
+    n_shots = 1024
     bn = create_graph()
 
+    samples, names = bn.sample_from_graph(n_shots)
+    bincounts = [np.bincount(samples[i, :])[1] for i in range(samples.shape[0])]
+    P_W1 = bincounts[3] / n_shots
+    P_S1W1 = sum(samples[1, :] & samples[3, :]) / n_shots
+    print(f'P(S=1|W=1)={P_S1W1 / P_W1:.3f}, true=0.430')  # True: 0.430
+
     qbn = QBN(bn)
-    n_shots = 1024
     result = qbn.perform_sampling(shots=n_shots)
 
     # Manual computation from the joint
