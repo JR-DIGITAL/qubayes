@@ -5,13 +5,15 @@ Benedetti et al., 2021.
 """
 __author__ = "Florian Krebs"
 from sprinkler_example import create_graph as create_sprinkler_graph
-from qiskit.circuit.library import RealAmplitudes, EfficientSU2
+from qiskit.circuit.library import EfficientSU2
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow.keras.callbacks import EarlyStopping
 from copy import deepcopy
+import matplotlib.pyplot as plt
 
 
 class Optimizer(object):
@@ -43,7 +45,8 @@ class Optimizer(object):
                 samples_crs = bm[key].sample(n_samples)
                 # classify 50 points
                 # TODO: Really logit?
-                logit_d = self.classifier.predict(samples_crs, verbose=0)[:, 0]
+                p_bm = self.classifier.predict(samples_crs, verbose=0)[:, 0]
+                logit_d = np.log(p_bm / (1 - p_bm))
                 # compute P(x|z) for the 50 points
                 loglik = self.bayes_net.compute_log_likelihood(samples_crs)
                 # compute the mean difference (logit(d_i) - log(p(x_i|z_i))) ->
@@ -58,26 +61,58 @@ class Optimizer(object):
             self.classifier = tf.keras.Sequential([
                 layers.Input(shape=(self.born_machine.n_qubits,)),
                 layers.Dense(6, activation='relu'),
-                layers.Dense(1)
+                layers.Dense(1, activation='sigmoid')
             ])
 
     def train_classifier(self, train_x, train_y, learning_rate=0.03):
-        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        self.classifier.compile(optimizer=optimizer,
-                                loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),  # we already have a sigmoid after the last layer
-                                metrics=['accuracy'])
-        self.classifier.fit(x=train_x, y=train_y, epochs=50, batch_size=10,
-                            verbose=0)
-        return
+        # shuffle datasets
+        idx = np.random.permutation(train_x.shape[0])
+        train_x = train_x[idx, :]
+        train_y = train_y[idx]
+        split = 0.2
+        idx = int(train_x.shape[0] * split)
+        val_x = train_x[:idx, :]
+        val_y = train_y[:idx]
+        train_x = train_x[idx:, :]
+        train_y = train_y[idx:]
 
-    def compute_loss(self, samples_crs):
-        logit_d = self.classifier.predict(samples_crs, verbose=0)[:, 0]
+        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        # Define the early stopping callback
+        early_stopping = EarlyStopping(
+            monitor='val_loss',         # Monitor validation loss
+            patience=20,                # Wait for 5 epochs of no improvement
+            restore_best_weights=True   # Restore the model to the best epoch
+        )
+        self.classifier.compile(optimizer=optimizer,
+                                loss=tf.keras.losses.BinaryCrossentropy(from_logits=False),  # we already have a sigmoid after the last layer
+                                metrics=['accuracy'])
+        history = self.classifier.fit(x=train_x, y=train_y,
+                                      validation_data=(val_x, val_y),
+                                      epochs=200, batch_size=10,
+                                      verbose=0, callbacks=[early_stopping])
+
+        # Calculate the best epoch index
+        best_epoch = early_stopping.stopped_epoch - early_stopping.patience + 1
+
+        # Retrieve the validation accuracy of the best epoch
+        best_val_accuracy = history.history['val_accuracy'][best_epoch]
+        print(f"- Validation accuracy {best_val_accuracy:.2f} at best epoch {best_epoch}.")
+
+        return history
+
+    def compute_loss(self, samples_crs=None):
+        if samples_crs is None:
+            samples_crs = self.born_machine.sample(100)
+        p_born = self.classifier.predict(samples_crs, verbose=0)[:, 0]
+        logit_d = np.log(p_born / (1 - p_born))
         loglik = self.bayes_net.compute_log_likelihood(samples_crs)
         return (logit_d - loglik).mean()
 
     def optimize(self):
+
         s_prior = self.bayes_net.sample_from_joint(100)
-        tvd = np.zeros((self.n_iterations,))
+        metrics = {'tvd': np.zeros((self.n_iterations,)),
+                   'loss': np.zeros((self.n_iterations,))}
         for i in range(self.n_iterations):
             # Draw 100 sample from the born machine
             s_bm = self.born_machine.sample(100)
@@ -86,7 +121,13 @@ class Optimizer(object):
             x_train = np.vstack((s_bm, s_prior))
             y_train = np.zeros((s_prior.shape[0] + s_bm.shape[0],))  # 0 ... born machine, 1 ... prior
             y_train[s_bm.shape[0]:] = 1
-            self.train_classifier(x_train, y_train)
+            history = self.train_classifier(x_train, y_train)
+
+            # plt.figure()
+            # plt.plot(history.history['loss'])
+            # plt.plot(history.history['val_loss'])
+            # plt.legend(['train_loss', 'val_loss'])
+            # plt.savefig(fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\learning_curve_it{i}.png')
 
             # Calculate the gradient using the parameter-shift rule
             gradients = self.estimate_gradient()
@@ -95,18 +136,24 @@ class Optimizer(object):
             self.born_machine.params += self.learning_rate * gradients
 
             # Evaluate the function at the new theta
-            loss = self.compute_loss(s_bm)
-            tvd[i] = self.compute_tvd(s_bm)
+            metrics['loss'][i] = self.compute_loss()
+            metrics['tvd'][i] = self.compute_tvd(s_bm)
 
             # Print the current theta and function value
-            print(f"Iteration {i + 1}: tvd = {tvd[i]:.4f}, loss = {loss:.4f}, mean gradient = {gradients.mean():.4f}")
-        return self.born_machine, tvd
+            print(f"Iteration {i + 1}: tvd = {metrics['tvd'][i]:.4f}, loss = {metrics['loss'][i]:.4f},"
+                  f" mean gradient = {gradients.mean():.4f}")
+        return self.born_machine, metrics
 
     def compute_tvd(self, samples):
         # Compute total variation distance (The largest absolute difference
         # between the probabilities that the two probability distributions
         # assign to the same event.).
         return self.bayes_net.compute_tvd(samples)
+
+
+# class DFOptimizer(Optimizer):
+#
+#     def __init__(self):
 
 
 class BornMachine(object):
@@ -184,8 +231,7 @@ class SprinklerBN(object):
         log_lik = np.zeros((samples_crs.shape[0],))
         for i in range(samples_crs.shape[0]):
             c, r, s = samples_crs[i, :]
-            # TODO: check for small probabilities
-            log_lik[i] = np.log(max([1e-2, self.graph.nodes['wet'].data[1, s, r]]))
+            log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[1, s, r]]))
         return log_lik
 
     def compute_log_likelihood(self, n_samples):
@@ -220,6 +266,19 @@ class SprinklerBN(object):
         return tvd
 
 
+def plot_optimization_metrics(metrics):
+    fig, ax = plt.subplots(1, 2, figsize=(13, 4))
+    ax[0].plot(metrics['loss'], label='Loss according to Eq. 7')
+    ax[0].set_xlabel('Epoch')
+    ax[0].set_ylabel('Loss (Eq. 7)')
+    ax[0].legend()
+    ax[1].plot(metrics['tvd'], label='TVD between q(z|x) and p(z|x)')
+    ax[1].set_xlabel('Epoch')
+    ax[1].set_ylabel('TVD')
+    ax[1].legend()
+    plt.savefig(fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\optimization.png')
+
+
 if __name__ == "__main__":
     # Create BN object
     sprinkler_bn = SprinklerBN()
@@ -227,5 +286,8 @@ if __name__ == "__main__":
     bm = BornMachine(3, n_blocks=1)
     bm.print_circuit()
     # Optimize it
-    opt = Optimizer(bm, sprinkler_bn, n_iterations=200, learning_rate=0.003)
-    bm_opt = opt.optimize()
+    opt = Optimizer(bm, sprinkler_bn, n_iterations=50, learning_rate=0.003)
+    bm_opt, metrics = opt.optimize()
+    # plot_optimization_metrics(metrics)
+
+
