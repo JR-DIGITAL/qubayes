@@ -16,15 +16,95 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 
 
+class OptimalClassifier(object):
+
+    def __init__(self, bayes_net):
+        self.q_crs = None
+        self.p_crs = bayes_net.compute_p_crs()
+
+    def train(self, train_x, train_y, learning_rate=None):
+        # learn q(C, R, S | W = 1) from train_x
+        train_x = train_x[train_y == 0, :]  # get only samples from born machine
+        unique_rows, unique_counts = np.unique(train_x, axis=0, return_counts=True)
+        estimation = np.zeros((2, 2, 2), dtype=float)  # C, R, S
+        for c in range(2):
+            for r in range(2):
+                for s in range(2):
+                    idx = (unique_rows == np.array([c, r, s])).all(axis=1)
+                    if idx.any():
+                        estimation[c, r, s] = float(unique_counts[idx][0]) / train_x.shape[0]
+        self.q_crs = estimation
+
+    def predict(self, samples):
+        self.train(samples, np.zeros((samples.shape[0],)))  # update q_crs
+        pred = np.zeros((samples.shape[0],))
+        for i in range(samples.shape[0]):
+            (c, r, s) = samples[i, :]
+            pred[i] = self.q_crs[c, r, s] / (self.q_crs[c, r, s] + self.p_crs[c, r, s])
+        return pred
+
+
+class Classifier(object):
+
+    def __init__(self, n_inputs):
+        self.model = tf.keras.Sequential([
+            layers.Input(shape=(n_inputs,)),
+            layers.Dense(6, activation='relu'),
+            layers.Dense(1, activation='sigmoid')
+        ])
+
+    def train(self, train_x, train_y, learning_rate=0.03):
+        # shuffle datasets
+        idx = np.random.permutation(train_x.shape[0])
+        train_x = train_x[idx, :]
+        train_y = train_y[idx]
+        split = 0.2
+        idx = int(train_x.shape[0] * split)
+        val_x = train_x[:idx, :]
+        val_y = train_y[:idx]
+        train_x = train_x[idx:, :]
+        train_y = train_y[idx:]
+
+        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        # Define the early stopping callback
+        early_stopping = EarlyStopping(
+            monitor='val_loss',         # Monitor validation loss
+            patience=20,                # Wait for 5 epochs of no improvement
+            restore_best_weights=True   # Restore the model to the best epoch
+        )
+        self.model.compile(optimizer=optimizer,
+                           loss=tf.keras.losses.BinaryCrossentropy(from_logits=False),  # we already have a sigmoid after the last layer
+                           metrics=['accuracy'])
+        history = self.model.fit(x=train_x, y=train_y,
+                                 validation_data=(val_x, val_y),
+                                 epochs=200, batch_size=10,
+                                 verbose=0, callbacks=[early_stopping])
+
+        # Calculate the best epoch index
+        best_epoch = early_stopping.stopped_epoch - early_stopping.patience + 1
+
+        # Retrieve the validation accuracy of the best epoch
+        best_val_accuracy = history.history['val_accuracy'][best_epoch]
+        print(f"- Validation accuracy {best_val_accuracy:.2f} at best epoch {best_epoch}.")
+
+        return history
+
+    def predict(self, samples):
+        # if prob > 0.5 => class = 1
+        return self.model.predict(samples, verbose=0)[:, 0]  # return 1d array
+
+
 class Optimizer(object):
 
-    def __init__(self, born_machine, bayes_net, classifier=None, n_iterations=100, learning_rate=0.003):
+    def __init__(self, born_machine, bayes_net, n_iterations=100, learning_rate=0.003, use_optimal_clf=False):
         self.born_machine = born_machine
         self.n_iterations = n_iterations
         self.learning_rate = learning_rate
         self.bayes_net = bayes_net
-        self.classifier = classifier
-        self.initialize_classifier()
+        if use_optimal_clf:
+            self.classifier = OptimalClassifier(bayes_net)
+        else:
+            self.classifier = Classifier(n_inputs=self.born_machine.n_qubits)
 
     def estimate_gradient(self, n_samples=100):
         # Use parameter shift rule for estimation, as outlined in B15 in the paper
@@ -45,7 +125,8 @@ class Optimizer(object):
                 samples_crs = bm[key].sample(n_samples)
                 # classify 50 points
                 # TODO: Really logit?
-                p_bm = self.classifier.predict(samples_crs, verbose=0)[:, 0]
+                p_prior = self.classifier.predict(samples_crs)
+                p_bm = 1. - p_prior
                 logit_d = np.log(p_bm / (1 - p_bm))
                 # compute P(x|z) for the 50 points
                 loglik = self.bayes_net.compute_log_likelihood(samples_crs)
@@ -56,72 +137,28 @@ class Optimizer(object):
             gradients[i] = (md['plus'] - md['minus']) / 2
         return gradients
 
-    def initialize_classifier(self):
-        if self.classifier is None:
-            self.classifier = tf.keras.Sequential([
-                layers.Input(shape=(self.born_machine.n_qubits,)),
-                layers.Dense(6, activation='relu'),
-                layers.Dense(1, activation='sigmoid')
-            ])
-
-    def train_classifier(self, train_x, train_y, learning_rate=0.03):
-        # shuffle datasets
-        idx = np.random.permutation(train_x.shape[0])
-        train_x = train_x[idx, :]
-        train_y = train_y[idx]
-        split = 0.2
-        idx = int(train_x.shape[0] * split)
-        val_x = train_x[:idx, :]
-        val_y = train_y[:idx]
-        train_x = train_x[idx:, :]
-        train_y = train_y[idx:]
-
-        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        # Define the early stopping callback
-        early_stopping = EarlyStopping(
-            monitor='val_loss',         # Monitor validation loss
-            patience=20,                # Wait for 5 epochs of no improvement
-            restore_best_weights=True   # Restore the model to the best epoch
-        )
-        self.classifier.compile(optimizer=optimizer,
-                                loss=tf.keras.losses.BinaryCrossentropy(from_logits=False),  # we already have a sigmoid after the last layer
-                                metrics=['accuracy'])
-        history = self.classifier.fit(x=train_x, y=train_y,
-                                      validation_data=(val_x, val_y),
-                                      epochs=200, batch_size=10,
-                                      verbose=0, callbacks=[early_stopping])
-
-        # Calculate the best epoch index
-        best_epoch = early_stopping.stopped_epoch - early_stopping.patience + 1
-
-        # Retrieve the validation accuracy of the best epoch
-        best_val_accuracy = history.history['val_accuracy'][best_epoch]
-        print(f"- Validation accuracy {best_val_accuracy:.2f} at best epoch {best_epoch}.")
-
-        return history
-
     def compute_loss(self, samples_crs=None):
         if samples_crs is None:
             samples_crs = self.born_machine.sample(100)
-        p_born = self.classifier.predict(samples_crs, verbose=0)[:, 0]
+        p_prior = self.classifier.predict(samples_crs)
+        p_born = 1. - p_prior
         logit_d = np.log(p_born / (1 - p_born))
         loglik = self.bayes_net.compute_log_likelihood(samples_crs)
         return (logit_d - loglik).mean()
 
     def optimize(self):
-
-        s_prior = self.bayes_net.sample_from_joint(100)
         metrics = {'tvd': np.zeros((self.n_iterations,)),
                    'loss': np.zeros((self.n_iterations,))}
         for i in range(self.n_iterations):
             # Draw 100 sample from the born machine
             s_bm = self.born_machine.sample(100)
+            s_prior = self.bayes_net.sample_from_joint(100)
 
             # Train Classifier with {S_prior + S_born} to distinguish prior and born machine
             x_train = np.vstack((s_bm, s_prior))
             y_train = np.zeros((s_prior.shape[0] + s_bm.shape[0],))  # 0 ... born machine, 1 ... prior
             y_train[s_bm.shape[0]:] = 1
-            history = self.train_classifier(x_train, y_train)
+            history = self.classifier.train(x_train, y_train)
 
             # plt.figure()
             # plt.plot(history.history['loss'])
@@ -237,6 +274,16 @@ class SprinklerBN(object):
     def compute_log_likelihood(self, n_samples):
         return self.compute_log_p_w_crs(n_samples)
 
+    def compute_p_crs(self):
+        p_crs = np.zeros((2, 2, 2))  # C, R, S
+        for c in range(2):
+            prob = self.graph.nodes['cloudy'].data[c]
+            for r in range(2):
+                prob2 = prob * self.graph.nodes['rain'].data[r, c]
+                for s in range(2):
+                    p_crs[c, r, s] = prob2 * self.graph.nodes['sprinkler'].data[s, c]
+        return p_crs / p_crs.sum()
+
     def compute_tvd(self, samples_crs):
         # Total variation distance between Q and P(C, R, S | W = 1)
         # 1) Get the counts of the samples -> Q
@@ -266,7 +313,7 @@ class SprinklerBN(object):
         return tvd
 
 
-def plot_optimization_metrics(metrics):
+def plot_optimization_metrics(metrics, save=False):
     fig, ax = plt.subplots(1, 2, figsize=(13, 4))
     ax[0].plot(metrics['loss'], label='Loss according to Eq. 7')
     ax[0].set_xlabel('Epoch')
@@ -276,18 +323,24 @@ def plot_optimization_metrics(metrics):
     ax[1].set_xlabel('Epoch')
     ax[1].set_ylabel('TVD')
     ax[1].legend()
-    plt.savefig(fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\optimization.png')
+    if save:
+        plt.savefig(fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\optimization.png')
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
     # Create BN object
     sprinkler_bn = SprinklerBN()
     # Initialize a born machine
-    bm = BornMachine(3, n_blocks=1)
+    bm = BornMachine(3, n_blocks=0)
     bm.print_circuit()
     # Optimize it
-    opt = Optimizer(bm, sprinkler_bn, n_iterations=50, learning_rate=0.003)
+    opt = Optimizer(bm, sprinkler_bn,
+                    n_iterations=400,
+                    learning_rate=0.003,
+                    use_optimal_clf=True)
     bm_opt, metrics = opt.optimize()
-    # plot_optimization_metrics(metrics)
+    plot_optimization_metrics(metrics, save=1)
 
 
