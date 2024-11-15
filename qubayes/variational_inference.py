@@ -5,7 +5,7 @@ Benedetti et al., 2021.
 """
 __author__ = "Florian Krebs"
 from sprinkler_example import create_graph as create_sprinkler_graph
-from qiskit.circuit.library import EfficientSU2
+from qiskit.circuit.library import EfficientSU2, RealAmplitudes
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 import numpy as np
@@ -220,49 +220,56 @@ class Optimizer(object):
 
 class DerivativeFreeOptimizer(object):
 
-    def __init__(self, born_machine, bayes_net, classifier, n_iterations=100, learning_rate=0.003):
+    def __init__(self, born_machine, bayes_net, classifier, n_iterations=100,
+                 learning_rate=0.003, method='COBYLA'):
         self.n_iterations = n_iterations
         self.learning_rate = learning_rate
         self.bayes_net = bayes_net
         self.classifier = classifier
         self.born_machine = born_machine
+        self.method = method
         self.params = None
 
-    def train_loss(self, params):
-        self.params = params
-        n_samples = 1024
+    def compute_kl_loss(self, theta_values):
+        n_samples = 1000
+        self.born_machine.params = theta_values
         samples = self.born_machine.sample(n_samples, return_samples=True)
-        # Calculate the loss: the first two qubits should be equal (lower loss)
-        loss = self.compute_kl_loss(samples)
-        return loss
+        q_bm = self.born_machine.q_bm
+        p_prior = self.bayes_net.compute_p_prior()
+        loss = 0
+        for i in range(samples.shape[0]):
+            s = samples[i, :]
+            d_bm = q_bm[s[0]] / (q_bm[s[0]] + p_prior[s[0]])
+            loglik = self.bayes_net.compute_log_likelihood(s[np.newaxis, :], wet=1)
+            loss += (logit(d_bm) - loglik)
+        return loss / samples.shape[0]
 
-    def compute_kl_loss(self, samples_crs=None):
-        # Compute L_KL loss as defined in Eq. 7.
-        if samples_crs is None:
-            samples_crs = self.born_machine.sample(100)
-        p_prior = self.classifier.predict(samples_crs)
-        p_born = 1. - p_prior
-        loglik = self.bayes_net.compute_log_likelihood(samples_crs)
-        return (logit(p_born) - loglik).mean()
+    def optimize(self):
 
-    def optimize(self, method='COBYLA'):
-        metrics = {'tvd': np.zeros((self.n_iterations,)),
-                   'kl_loss': np.zeros((self.n_iterations,)),
-                   'ce_loss': np.zeros((self.n_iterations,))}
-        optimizer = getattr(optimizers, method)
+        optimizer = getattr(optimizers, self.method)
         info = {'parameters': [], 'loss': []}
 
-        def callback(parameters):  # storing intermediate info
-            info['parameters'].append(parameters)
-
-        initial_parameters = np.random.normal(0, 0.1, size=self.born_machine.ansatz.num_parameters)
-        opt = optimizer(maxiter=self.n_iterations, callback=callback)
-        opt_results = opt.minimize(self.train_loss, initial_parameters)
-        for i in range(opt_results.nfev):
+        if self.method == 'COBYLA':
+            def callback(parameters):  # storing intermediate info
+                info['parameters'].append(parameters)
+        elif self.method == 'GradientDescent':
+            def callback(nfev, parameters, loss_value, gradient_norm):  # storing intermediate info
+                info['parameters'].append(parameters)
+                info['loss'].append(loss_value)
+        opt = optimizer(maxiter=self.n_iterations, callback=callback, tol=1e-10)
+        opt_results = opt.minimize(self.compute_kl_loss, bm.params)
+        n_iterations = len(info['parameters'])
+        metrics = {'tvd': np.zeros(n_iterations),
+                   'kl_loss': np.zeros(n_iterations),
+                   'ce_loss': np.zeros(n_iterations)}
+        posterior = self.bayes_net.compute_posterior()
+        for i in range(len(info['parameters'])):
+            # Print progress
+            metrics['kl_loss'][i] = self.compute_kl_loss(info['parameters'][i])
             self.born_machine.params = info['parameters'][i]
-            s_bm = self.born_machine.sample(1000)
-            metrics['tvd'][i] = self.compute_tvd(s_bm)
-            metrics['kl_loss'][i] = self.compute_kl_loss(s_bm)
+            pred = self.born_machine.sample(1000, return_samples=False)
+            metrics['tvd'][i] = max(abs(pred - posterior))
+            print(f"Iteration {i + 1}: Loss = {metrics['kl_loss'][i]}, Pred = {pred[0]}, True = {posterior[0]}")
 
         return self.born_machine, metrics
 
@@ -280,27 +287,31 @@ class BornMachine(object):
         self.n_qubits = n_qubits
         self.n_blocks = n_blocks
         self.params = None
-        self.ansatz = EfficientSU2(n_qubits,
-                                   su2_gates=['rz', 'rx'],
-                                   reps=n_blocks,
-                                   entanglement='linear')
-        self.initialize()
+        self.ansatz = None
+        self.q_bm = None
+        self.reset_ansatz()
 
-    def initialize(self, std=0.01):
-        self.params = np.random.normal(0, std, size=self.ansatz.num_parameters)
+    def reset_ansatz(self):
+        # self.ansatz = EfficientSU2(n_qubits,
+        #                            su2_gates=['rz', 'rx'],
+        #                            reps=n_blocks,
+        #                            entanglement='linear')
+        self.ansatz = RealAmplitudes(self.n_qubits, reps=self.n_blocks, entanglement='linear')
+        if self.params is None:
+            self.params = np.random.normal(0, 0.01, size=self.ansatz.num_parameters)
+        param_dict = {param: value for param, value in zip(self.ansatz.parameters, self.params)}
+        self.ansatz.assign_parameters(param_dict, inplace=True)
 
     def print_circuit(self):
         print(self.ansatz.decompose())
 
     def sample(self, n_samples, return_samples=True):
-        param_dict = {param: value for param, value in zip(self.ansatz.parameters, self.params)}
-        self.ansatz.assign_parameters(param_dict, inplace=True)
-
         # Create a quantum circuit
         circuit = QuantumCircuit(self.n_qubits)
         # Apply a Hadamard gate to each qubit for state preparation
         for qubit in range(self.n_qubits):
             circuit.h(qubit)
+        self.reset_ansatz()
         circuit.compose(self.ansatz, inplace=True)
         circuit.measure_all()
 
@@ -308,11 +319,13 @@ class BornMachine(object):
         simulator = AerSimulator(method='matrix_product_state')
         compiled_circuit = transpile(circuit, simulator)
         result = simulator.run(compiled_circuit, shots=n_samples, memory=True).result()
+        p_0 = result.get_counts().get('0', 0) / n_samples
+        self.q_bm = np.array([p_0, 1-p_0])
         if return_samples:
             samples = result.get_memory()
             out = np.array([[char == '1' for char in string] for string in samples], dtype='int32')
         else:
-            out = dict(result.get_counts())
+            out = self.q_bm
         return out
 
 
@@ -343,8 +356,8 @@ class SimpleBN(object):
 
     def __init__(self):
         rain = Node('rain', data=np.array([0.5, 0.5]))
-        wet = Node('wet', data=np.array([[0.9, 0.1],  # no rain
-                                         [0.1, 0.9]]), # rain
+        wet = Node('wet', data=np.array([[0.8, 0.1],
+                                         [0.2, 0.9]]),
                    parents=['rain'])
         self.graph = Graph({'rain': rain, 'wet': wet})
 
@@ -362,12 +375,12 @@ class SimpleBN(object):
     def compute_p_prior(self):
         return self.graph.nodes['rain'].data
 
-    def compute_log_likelihood(self, samples):
+    def compute_log_likelihood(self, samples, wet=1):
         # Compute the log likelihood P(W=1 | R)
         log_lik = np.zeros((samples.shape[0],))
         for i in range(samples.shape[0]):
             r = samples[i, :]
-            log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[1, r][0]]))
+            log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[wet, r][0]]))
         return log_lik
 
     def compute_tvd(self, samples):
@@ -389,6 +402,15 @@ class SimpleBN(object):
         # 3) Find max distance
         tvd = (abs(posterior - estimation)).max()
         return tvd
+
+    def compute_posterior(self, wet=1):
+        posterior = np.zeros((2,))  # P(R | W=1)
+        r = 0
+        posterior[r] = self.graph.nodes['wet'].data[wet, r] * self.graph.nodes['rain'].data[r]
+        r = 1
+        posterior[r] = self.graph.nodes['wet'].data[wet, r] * self.graph.nodes['rain'].data[r]
+        posterior /= posterior.sum()
+        return posterior
 
 
 class SprinklerBN(object):
@@ -483,7 +505,8 @@ def plot_optimization_metrics(metrics, save=False):
     ax[0].set_ylabel('Loss (Eq. 7)')
     ax[0].legend()
     ax[1].plot(metrics['tvd'], label='TVD between q(z|x) and p(z|x)')
-    ax[1].plot(metrics['ce_loss'], label='Classifier loss')
+    if metrics['ce_loss'].max() > metrics['ce_loss'].min():
+        ax[1].plot(metrics['ce_loss'], label='Classifier loss')
     ax[1].set_xlabel('Epoch')
     ax[1].set_ylabel('TVD')
     ax[1].legend()
@@ -502,17 +525,17 @@ if __name__ == "__main__":
     bn = SimpleBN()
 
     # Initialize a born machine
-    bm = BornMachine(len(bn.graph.nodes)-1, n_blocks=0)
+    bm = BornMachine(len(bn.graph.nodes)-1, n_blocks=1)
     # bm = OptimalBornMachine(bn)
-    bm.print_circuit()
+    # bm.print_circuit()
 
     # Classifier
     classifier = OptimalClassifier(bn)
     # classifier = MLP_Classifier(n_inputs=bm.n_qubits)
 
     # Optimize it
-    opt = Optimizer(bm, bn, classifier, n_iterations=100, learning_rate=0.003)
-    # opt = DerivativeFreeOptimizer(bm, bn, classifier, n_iterations=100, learning_rate=0.003)
+    # opt = Optimizer(bm, bn, classifier, n_iterations=500, learning_rate=0.003)
+    opt = DerivativeFreeOptimizer(bm, bn, classifier, n_iterations=100, learning_rate=0.003)
     bm_opt, metrics = opt.optimize()
     plot_optimization_metrics(metrics, save=1)
 
