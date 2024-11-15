@@ -14,37 +14,59 @@ from tensorflow.keras import layers
 from tensorflow.keras.callbacks import EarlyStopping
 from copy import deepcopy
 import matplotlib.pyplot as plt
+from qubayes.qubayes_tools import Node, Graph
+import itertools
+from qiskit_algorithms import optimizers
+
+
+def logit(x):
+    return np.log(x / (1 - x))
 
 
 class OptimalClassifier(object):
 
     def __init__(self, bayes_net):
-        self.q_crs = None
-        self.p_crs = bayes_net.compute_p_crs()
+        self.bn = bayes_net
+        self.q_posterior = None
+        self.p_prior = bayes_net.compute_p_prior()
 
     def train(self, train_x, train_y, learning_rate=None):
         # learn q(C, R, S | W = 1) from train_x
         train_x = train_x[train_y == 0, :]  # get only samples from born machine
         unique_rows, unique_counts = np.unique(train_x, axis=0, return_counts=True)
-        estimation = np.zeros((2, 2, 2), dtype=float)  # C, R, S
-        for c in range(2):
-            for r in range(2):
-                for s in range(2):
-                    idx = (unique_rows == np.array([c, r, s])).all(axis=1)
-                    if idx.any():
-                        estimation[c, r, s] = float(unique_counts[idx][0]) / train_x.shape[0]
-        self.q_crs = estimation
+        # TODO: this works only for a single evidence variable
+        lst = list(itertools.product([0, 1], repeat=self.bn.graph.n_variables-1))
+        estimation = np.zeros((2,) * (self.bn.graph.n_variables-1), dtype=float)
+        for c in lst:
+            idx = (unique_rows == np.array([c])).all(axis=1)
+            if idx.any():
+                estimation[c] = float(unique_counts[idx][0]) / train_x.shape[0]
+        self.q_posterior = estimation
+        return None
 
-    def predict(self, samples):
-        self.train(samples, np.zeros((samples.shape[0],)))  # update q_crs
+    def predict(self, samples, labels=None):
+        # According to Eq. 5, predict p_prior
+        if labels is None:
+            labels = np.zeros((samples.shape[0],))
+        self.train(samples, labels)  # update q_crs using samples from bm (class 0)
         pred = np.zeros((samples.shape[0],))
         for i in range(samples.shape[0]):
-            (c, r, s) = samples[i, :]
-            pred[i] = self.q_crs[c, r, s] / (self.q_crs[c, r, s] + self.p_crs[c, r, s])
+            idx = tuple(samples[i, :])
+            pred[i] = self.q_posterior[idx] / (self.q_posterior[idx] + self.p_prior[idx])
         return pred
 
+    def compute_loss(self, train_x, train_y):
+        # According to Eq. 4
+        # 0 ... born machine, 1 ... prior
+        p_prior = self.predict(train_x, labels=train_y)
+        # born machine samples
+        E_log_bm = (np.log(1 - p_prior[train_y == 0])).mean()
+        # prior
+        E_log_prior = (np.log(p_prior[train_y == 1])).mean()
+        return E_log_bm + E_log_prior
 
-class Classifier(object):
+
+class MLP_Classifier(object):
 
     def __init__(self, n_inputs):
         self.model = tf.keras.Sequential([
@@ -89,22 +111,29 @@ class Classifier(object):
 
         return history
 
+    def compute_loss(self, train_x, train_y):
+        # According to Eq. 4
+        # 0 ... born machine, 1 ... prior
+        p_prior = self.predict(train_x)
+        # born machine samples
+        E_log_bm = (np.log(1 - p_prior[train_y == 0])).mean()
+        # prior
+        E_log_prior = (np.log(p_prior[train_y == 1])).mean()
+        return E_log_bm + E_log_prior
+
     def predict(self, samples):
-        # if prob > 0.5 => class = 1
+        # if prob > 0.5 => class = 1 (prior)
         return self.model.predict(samples, verbose=0)[:, 0]  # return 1d array
 
 
 class Optimizer(object):
 
-    def __init__(self, born_machine, bayes_net, n_iterations=100, learning_rate=0.003, use_optimal_clf=False):
-        self.born_machine = born_machine
+    def __init__(self, born_machine, bayes_net, classifier, n_iterations=100, learning_rate=0.003):
         self.n_iterations = n_iterations
         self.learning_rate = learning_rate
         self.bayes_net = bayes_net
-        if use_optimal_clf:
-            self.classifier = OptimalClassifier(bayes_net)
-        else:
-            self.classifier = Classifier(n_inputs=self.born_machine.n_qubits)
+        self.classifier = classifier
+        self.born_machine = born_machine
 
     def estimate_gradient(self, n_samples=100):
         # Use parameter shift rule for estimation, as outlined in B15 in the paper
@@ -127,32 +156,32 @@ class Optimizer(object):
                 # TODO: Really logit?
                 p_prior = self.classifier.predict(samples_crs)
                 p_bm = 1. - p_prior
-                logit_d = np.log(p_bm / (1 - p_bm))
                 # compute P(x|z) for the 50 points
                 loglik = self.bayes_net.compute_log_likelihood(samples_crs)
                 # compute the mean difference (logit(d_i) - log(p(x_i|z_i))) ->
-                md[key] = (logit_d - loglik).mean()
+                md[key] = (logit(p_bm) - loglik).mean()
 
             # compute the gradient as (md_plus - md_minus) / 2
             gradients[i] = (md['plus'] - md['minus']) / 2
         return gradients
 
-    def compute_loss(self, samples_crs=None):
+    def compute_kl_loss(self, samples_crs=None):
+        # Compute L_KL loss as defined in Eq. 7.
         if samples_crs is None:
             samples_crs = self.born_machine.sample(100)
         p_prior = self.classifier.predict(samples_crs)
         p_born = 1. - p_prior
-        logit_d = np.log(p_born / (1 - p_born))
         loglik = self.bayes_net.compute_log_likelihood(samples_crs)
-        return (logit_d - loglik).mean()
+        return (logit(p_born) - loglik).mean()
 
     def optimize(self):
         metrics = {'tvd': np.zeros((self.n_iterations,)),
-                   'loss': np.zeros((self.n_iterations,))}
+                   'kl_loss': np.zeros((self.n_iterations,)),
+                   'ce_loss': np.zeros((self.n_iterations,))}
         for i in range(self.n_iterations):
             # Draw 100 sample from the born machine
             s_bm = self.born_machine.sample(100)
-            s_prior = self.bayes_net.sample_from_joint(100)
+            s_prior = self.bayes_net.sample_from_prior(100)
 
             # Train Classifier with {S_prior + S_born} to distinguish prior and born machine
             x_train = np.vstack((s_bm, s_prior))
@@ -173,12 +202,13 @@ class Optimizer(object):
             self.born_machine.params += self.learning_rate * gradients
 
             # Evaluate the function at the new theta
-            metrics['loss'][i] = self.compute_loss()
+            metrics['kl_loss'][i] = self.compute_kl_loss(s_bm)
             metrics['tvd'][i] = self.compute_tvd(s_bm)
+            metrics['ce_loss'][i] = self.classifier.compute_loss(x_train, y_train)
 
             # Print the current theta and function value
-            print(f"Iteration {i + 1}: tvd = {metrics['tvd'][i]:.4f}, loss = {metrics['loss'][i]:.4f},"
-                  f" mean gradient = {gradients.mean():.4f}")
+            print(f"Iteration {i + 1}: tvd = {metrics['tvd'][i]:.4f}, born loss = {metrics['kl_loss'][i]:.4f},"
+                  f" clf loss = {metrics['ce_loss'][i]:.4f}")
         return self.born_machine, metrics
 
     def compute_tvd(self, samples):
@@ -188,9 +218,59 @@ class Optimizer(object):
         return self.bayes_net.compute_tvd(samples)
 
 
-# class DFOptimizer(Optimizer):
-#
-#     def __init__(self):
+class DerivativeFreeOptimizer(object):
+
+    def __init__(self, born_machine, bayes_net, classifier, n_iterations=100, learning_rate=0.003):
+        self.n_iterations = n_iterations
+        self.learning_rate = learning_rate
+        self.bayes_net = bayes_net
+        self.classifier = classifier
+        self.born_machine = born_machine
+        self.params = None
+
+    def train_loss(self, params):
+        self.params = params
+        n_samples = 1024
+        samples = self.born_machine.sample(n_samples, return_samples=True)
+        # Calculate the loss: the first two qubits should be equal (lower loss)
+        loss = self.compute_kl_loss(samples)
+        return loss
+
+    def compute_kl_loss(self, samples_crs=None):
+        # Compute L_KL loss as defined in Eq. 7.
+        if samples_crs is None:
+            samples_crs = self.born_machine.sample(100)
+        p_prior = self.classifier.predict(samples_crs)
+        p_born = 1. - p_prior
+        loglik = self.bayes_net.compute_log_likelihood(samples_crs)
+        return (logit(p_born) - loglik).mean()
+
+    def optimize(self, method='COBYLA'):
+        metrics = {'tvd': np.zeros((self.n_iterations,)),
+                   'kl_loss': np.zeros((self.n_iterations,)),
+                   'ce_loss': np.zeros((self.n_iterations,))}
+        optimizer = getattr(optimizers, method)
+        info = {'parameters': [], 'loss': []}
+
+        def callback(parameters):  # storing intermediate info
+            info['parameters'].append(parameters)
+
+        initial_parameters = np.random.normal(0, 0.1, size=self.born_machine.ansatz.num_parameters)
+        opt = optimizer(maxiter=self.n_iterations, callback=callback)
+        opt_results = opt.minimize(self.train_loss, initial_parameters)
+        for i in range(opt_results.nfev):
+            self.born_machine.params = info['parameters'][i]
+            s_bm = self.born_machine.sample(1000)
+            metrics['tvd'][i] = self.compute_tvd(s_bm)
+            metrics['kl_loss'][i] = self.compute_kl_loss(s_bm)
+
+        return self.born_machine, metrics
+
+    def compute_tvd(self, samples):
+        # Compute total variation distance (The largest absolute difference
+        # between the probabilities that the two probability distributions
+        # assign to the same event.).
+        return self.bayes_net.compute_tvd(samples)
 
 
 class BornMachine(object):
@@ -212,7 +292,7 @@ class BornMachine(object):
     def print_circuit(self):
         print(self.ansatz.decompose())
 
-    def sample(self, n_samples):
+    def sample(self, n_samples, return_samples=True):
         param_dict = {param: value for param, value in zip(self.ansatz.parameters, self.params)}
         self.ansatz.assign_parameters(param_dict, inplace=True)
 
@@ -228,9 +308,87 @@ class BornMachine(object):
         simulator = AerSimulator(method='matrix_product_state')
         compiled_circuit = transpile(circuit, simulator)
         result = simulator.run(compiled_circuit, shots=n_samples, memory=True).result()
-        samples = result.get_memory()
-        samples = np.array([[char == '1' for char in string] for string in samples], dtype='int32')
-        return samples
+        if return_samples:
+            samples = result.get_memory()
+            out = np.array([[char == '1' for char in string] for string in samples], dtype='int32')
+        else:
+            out = dict(result.get_counts())
+        return out
+
+
+class OptimalBornMachine(object):
+
+    def __init__(self, bayes_net):
+        self.bn = bayes_net
+        self.n_qubits = 3
+        self.n_blocks = 0
+        self.params = None
+        self.ansatz = EfficientSU2(self.n_qubits,
+                                   su2_gates=['rz', 'rx'],
+                                   reps=self.n_blocks,
+                                   entanglement='linear')
+        self.initialize()
+
+    def initialize(self, std=0.01):
+        self.params = np.random.normal(0, std, size=self.ansatz.num_parameters)
+
+    def sample(self, n_samples):
+        # sample from P(C, R, S | W = 1)
+        samples = self.bn.sample_from_joint(n_samples * 2)  # C, R, S, W
+        samples = samples[samples[:, 3] == 1, :]
+        return samples[:n_samples, :3]
+
+
+class SimpleBN(object):
+
+    def __init__(self):
+        rain = Node('rain', data=np.array([0.5, 0.5]))
+        wet = Node('wet', data=np.array([[0.9, 0.1],  # no rain
+                                         [0.1, 0.9]]), # rain
+                   parents=['rain'])
+        self.graph = Graph({'rain': rain, 'wet': wet})
+
+        return
+
+    def sample_from_prior(self, n_samples):
+        s_prior = self.graph.sample_from_graph(n_samples)
+        return s_prior[0][0, :].transpose()[:, np.newaxis]  # 100 x 1
+
+    def sample_from_joint(self, n_samples):
+        s_prior = self.graph.sample_from_graph(n_samples)
+        s_prior_crs = s_prior[0][[0, 2, 1, 3], :].transpose()  # convert to C, R, S, W: 100 x 4
+        return s_prior_crs
+
+    def compute_p_prior(self):
+        return self.graph.nodes['rain'].data
+
+    def compute_log_likelihood(self, samples):
+        # Compute the log likelihood P(W=1 | R)
+        log_lik = np.zeros((samples.shape[0],))
+        for i in range(samples.shape[0]):
+            r = samples[i, :]
+            log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[1, r][0]]))
+        return log_lik
+
+    def compute_tvd(self, samples):
+        # Total variation distance between Q and P(C, R, S | W = 1)
+        # 1) Get the counts of the samples -> Q
+        unique_rows, unique_counts = np.unique(samples, axis=0, return_counts=True)
+        estimation = np.zeros((2,), dtype=float)  # C, R, S
+        estimation[0] = float(unique_counts[0]) / samples.shape[0]
+        estimation[1] = 1. - estimation[0]
+
+        # 2) Get the exact probabilities -> P(R | W=1)
+        posterior = np.zeros((2,))  # C, R, S
+        r = 0
+        posterior[r] = self.graph.nodes['wet'].data[1, r] * self.graph.nodes['rain'].data[r]
+        r = 1
+        posterior[r] = self.graph.nodes['wet'].data[1, r] * self.graph.nodes['rain'].data[r]
+        posterior /= posterior.sum()
+
+        # 3) Find max distance
+        tvd = (abs(posterior - estimation)).max()
+        return tvd
 
 
 class SprinklerBN(object):
@@ -258,9 +416,14 @@ class SprinklerBN(object):
             self.graph.nodes['wet'].data[0, 1, 1] = np.random.uniform(low=0.01, high=0.99)
             self.graph.nodes['wet'].data[1, 1, 1] = 1. - self.graph.nodes['wet'].data[0, 1, 1]
 
-    def sample_from_joint(self, n_samples):
+    def sample_from_prior(self, n_samples):
         s_prior = self.graph.sample_from_graph(n_samples)
         s_prior_crs = s_prior[0][:3, :][[0, 2, 1], :].transpose()  # convert to C, R, S: 100 x 3
+        return s_prior_crs
+
+    def sample_from_joint(self, n_samples):
+        s_prior = self.graph.sample_from_graph(n_samples)
+        s_prior_crs = s_prior[0][[0, 2, 1, 3], :].transpose()  # convert to C, R, S, W: 100 x 4
         return s_prior_crs
 
     def compute_log_p_w_crs(self, samples_crs):
@@ -271,10 +434,10 @@ class SprinklerBN(object):
             log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[1, s, r]]))
         return log_lik
 
-    def compute_log_likelihood(self, n_samples):
-        return self.compute_log_p_w_crs(n_samples)
+    def compute_log_likelihood(self, samples):
+        return self.compute_log_p_w_crs(samples)
 
-    def compute_p_crs(self):
+    def compute_p_prior(self):
         p_crs = np.zeros((2, 2, 2))  # C, R, S
         for c in range(2):
             prob = self.graph.nodes['cloudy'].data[c]
@@ -315,31 +478,41 @@ class SprinklerBN(object):
 
 def plot_optimization_metrics(metrics, save=False):
     fig, ax = plt.subplots(1, 2, figsize=(13, 4))
-    ax[0].plot(metrics['loss'], label='Loss according to Eq. 7')
+    ax[0].plot(metrics['kl_loss'], label='Loss according to Eq. 7')
     ax[0].set_xlabel('Epoch')
     ax[0].set_ylabel('Loss (Eq. 7)')
     ax[0].legend()
     ax[1].plot(metrics['tvd'], label='TVD between q(z|x) and p(z|x)')
+    ax[1].plot(metrics['ce_loss'], label='Classifier loss')
     ax[1].set_xlabel('Epoch')
     ax[1].set_ylabel('TVD')
     ax[1].legend()
     if save:
-        plt.savefig(fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\optimization.png')
+        out_fln = fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\optimization.png'
+        plt.savefig(out_fln)
+        print(f'Saved figure to {out_fln}')
     else:
         plt.show()
 
 
 if __name__ == "__main__":
+
     # Create BN object
-    sprinkler_bn = SprinklerBN()
+    # bn = SprinklerBN()
+    bn = SimpleBN()
+
     # Initialize a born machine
-    bm = BornMachine(3, n_blocks=0)
+    bm = BornMachine(len(bn.graph.nodes)-1, n_blocks=0)
+    # bm = OptimalBornMachine(bn)
     bm.print_circuit()
+
+    # Classifier
+    classifier = OptimalClassifier(bn)
+    # classifier = MLP_Classifier(n_inputs=bm.n_qubits)
+
     # Optimize it
-    opt = Optimizer(bm, sprinkler_bn,
-                    n_iterations=400,
-                    learning_rate=0.003,
-                    use_optimal_clf=True)
+    opt = Optimizer(bm, bn, classifier, n_iterations=100, learning_rate=0.003)
+    # opt = DerivativeFreeOptimizer(bm, bn, classifier, n_iterations=100, learning_rate=0.003)
     bm_opt, metrics = opt.optimize()
     plot_optimization_metrics(metrics, save=1)
 

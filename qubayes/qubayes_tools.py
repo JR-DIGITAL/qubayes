@@ -326,6 +326,7 @@ class Graph:
         self.nodes = nodes
         self.categories = None
         self.verbose = verbose
+        self.n_variables = len(nodes)
         if nodes is not None:
             self.set_categories_from_nodes()
         self.original_graph = None
