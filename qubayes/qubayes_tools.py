@@ -504,6 +504,57 @@ class Graph:
                 samples[c, :] = np.random.choice(n_bins, size=n_samples, p=node.data, replace=True)
         return samples, names
 
+    def compute_joint(self):
+        n_dim = len(self.nodes)
+        size = tuple()
+        for key, val in self.nodes.items():
+            size += tuple([val.n_states])
+        if not (np.array(size) == 2).all():
+            raise NotImplementedError('Not tested for non-binary graphs')
+        joint = np.zeros(size)
+        nodes_idx = dict()
+        for i, name in enumerate(self.nodes.keys()):
+            nodes_idx[name] = i
+        events = list(itertools.product([0, 1], repeat=n_dim))
+        for ev in events:
+            prob = 1.
+            for i, (name, node) in enumerate(self.nodes.items()):
+                if node.has_parents():
+                    parent_idx = [nodes_idx[p] for p in node.parents]
+                    idx = tuple([ev[nodes_idx[name]]]) + tuple(np.array(ev)[parent_idx])
+                    prob *= node.data[idx]
+                else:
+                    prob *= node.data[ev[i]]
+            joint[ev] = prob
+        np.testing.assert_almost_equal(joint.sum(), 1.0, decimal=10)
+        return joint
+
+    def compute_posterior(self, evidence=None):
+        # evidence is a dict, e.g. {'wet': 1, 'rain': 0}
+        joint = self.compute_joint()
+        # perform conditioning on evidence
+        if evidence is None:
+            posterior = joint
+        else:
+            nodes_idx = dict()
+            for i, name in enumerate(self.nodes.keys()):
+                nodes_idx[name] = i
+            posterior = joint
+            slices = [slice(None)] * joint.ndim
+            for i, (name, value) in enumerate(evidence.items()):
+                slices[nodes_idx[name]] = value
+            posterior = posterior[tuple(slices)]
+        return posterior / posterior.sum()
+
+    def marginalize_all_but(self, node_names):
+        joint = self.compute_joint()
+        sum_over = []
+        for i, name in enumerate(self.nodes.keys()):
+            if name not in node_names:
+                sum_over.append(i)
+        marginal = joint.sum(axis=tuple(sum_over))
+        return marginal
+
 
 class Query:
 
