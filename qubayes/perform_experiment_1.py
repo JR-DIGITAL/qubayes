@@ -7,11 +7,11 @@ __author__ = "Florian Krebs"
 import os.path
 import argparse
 import numpy as np
-from qubayes.qubayes_tools import Query
+from qubayes.qubayes_tools import QBNMusicQuery
 from config import MODEL_FLN
 
 
-class Query1(Query):
+class Query1(QBNMusicQuery):
 
     def __init__(self, use_ancillas=False):
         super(Query1, self).__init__()
@@ -24,7 +24,7 @@ class Query1(Query):
         self.name_str = 'P(track_genre=blues | artists=Chuck Berry, mode=minor)'
 
 
-class Query2(Query):
+class Query2(QBNMusicQuery):
 
     def __init__(self, use_ancillas=False):
         super(Query2, self).__init__()
@@ -36,7 +36,7 @@ class Query2(Query):
                          'tempo': 'tempo_52_119'}
 
 
-class Query3(Query):
+class Query3(QBNMusicQuery):
 
     def __init__(self, use_ancillas=False):
         super(Query3, self).__init__()

@@ -269,41 +269,6 @@ class DerivativeFreeOptimizer(object):
             # loss += np.log(q_bm[tuple(s)] / p_prior[tuple(s)]) - logliks[i]
         return loss / samples.shape[0]
 
-    # def compute_kl_loss(self, theta_values):
-    #
-    #     p_prior = self.bayes_net.compute_p_prior()
-    #
-    #     # sample from exact posterior
-    #     n_samples = 1000
-    #     samples = self.bayes_net.sample_from_posterior(n_samples)
-    #     posterior = self.bayes_net.compute_posterior()
-    #     logliks = self.bayes_net.compute_log_likelihood(samples)
-    #     loss = 0
-    #     p_wet = self.bayes_net.compute_p_wet(wet=1)
-    #     for i in range(samples.shape[0]):
-    #         s = samples[i, :]
-    #         loss += np.log(posterior[tuple(s)] * p_wet / p_prior[tuple(s)]) - logliks[i]
-    #         l0 = np.log(posterior[tuple(s)]) + np.log(p_wet) - np.log(p_prior[tuple(s)]) - logliks[i]
-    #     print(f'Exact loss={loss / n_samples:.5f}, mean loglik={logliks.mean():.5f}')
-    #
-    #     # sample from Born Machine
-    #     n_samples = 1000
-    #     self.born_machine.params = theta_values
-    #     samples = self.born_machine.sample(n_samples, return_samples=True)
-    #     q_bm = self.born_machine.q_bm
-    #     logliks = self.bayes_net.compute_log_likelihood(samples)
-    #     loss = 0
-    #     losses = np.zeros((n_samples,))
-    #     for i in range(samples.shape[0]):
-    #         s = samples[i, :]
-    #         # d_bm = q_bm[tuple(s)] / (q_bm[tuple(s)] + p_prior[tuple(s)])
-    #         # loss += (logit(d_bm) - logliks[i])
-    #         loss += np.log(q_bm[tuple(s)] * p_wet / p_prior[tuple(s)]) - logliks[i]
-    #     # TODO: The mean loss should be positive!
-    #     assert loss > 0
-    #     print(f'Born loss={loss/n_samples:.5f}, mean loglik={logliks.mean():.5f}')
-    #     return loss / samples.shape[0]
-
     def optimize(self):
 
         optimizer = getattr(optimizers, self.method)
@@ -421,7 +386,6 @@ class BayesNet(object):
         return samples
 
 
-
 class SimpleBN(BayesNet):
 
     def __init__(self):
@@ -432,15 +396,6 @@ class SimpleBN(BayesNet):
         graph = Graph({'rain': rain, 'wet': wet})
         super().__init__(graph)
         return
-
-    # def sample_from_prior(self, n_samples):
-    #     s_prior = self.graph.sample_from_graph(n_samples)
-    #     return s_prior[0][0, :].transpose()[:, np.newaxis]  # 100 x 1
-
-    # def sample_from_joint(self, n_samples):
-    #     s_prior = self.graph.sample_from_graph(n_samples)
-    #     s_prior_crs = s_prior[0][[0, 2, 1, 3], :].transpose()  # convert to C, R, S, W: 100 x 4
-    #     return s_prior_crs
 
     def compute_p_prior(self):
         return self.graph.marginalize_all_but(['rain'])
@@ -466,14 +421,6 @@ class SimpleBN2(BayesNet):
         super().__init__(graph)
         return
 
-    # def sample_from_prior(self, n_samples):
-    #     s_prior = self.graph.sample_from_graph(n_samples)
-    #     return s_prior[0][0, :].transpose()[:, np.newaxis]  # 100 x 1
-
-    # def sample_from_joint(self, n_samples):
-    #     s_prior = self.graph.sample_from_graph(n_samples)
-    #     s_prior_crs = s_prior[0][[0, 2, 1, 3], :].transpose()  # convert to C, R, S, W: 100 x 4
-    #     return s_prior_crs
     def compute_p_wet(self, wet=1):
         p = self.graph.marginalize_all_but(['wet'])
         return p[wet]
@@ -490,23 +437,8 @@ class SimpleBN2(BayesNet):
             log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[wet, r, s]]))
         return log_lik
 
-    # def compute_tvd(self, samples):
-    #     # Total variation distance between Q and P(R, S | W = 1)
-    #     # 1) Get the counts of the samples -> Q
-    #     unique_rows, unique_counts = np.unique(samples, axis=0, return_counts=True)
-    #     estimation = np.zeros((2, 2), dtype=float)  # R, S
-    #     for i in range(unique_rows.shape[0]):
-    #         estimation[tuple(unique_rows[i, :])] = float(unique_counts[i]) / samples.shape[0]
-    #
-    #     # 2) Get the exact probabilities -> P(R | W=1)
-    #     posterior = self.compute_posterior(wet=1)
-    #
-    #     # 3) Find max distance
-    #     tvd = (abs(posterior - estimation)).max()
-    #     return tvd
 
-
-class SprinklerBN(object):
+class SprinklerBN(BayesNet):
 
     def __init__(self, random_cpd=True):
         self.random_cpd = random_cpd
@@ -531,26 +463,13 @@ class SprinklerBN(object):
             self.graph.nodes['wet'].data[0, 1, 1] = np.random.uniform(low=0.01, high=0.99)
             self.graph.nodes['wet'].data[1, 1, 1] = 1. - self.graph.nodes['wet'].data[0, 1, 1]
 
-    # def sample_from_prior(self, n_samples):
-    #     s_prior = self.graph.sample_from_graph(n_samples)
-    #     s_prior_crs = s_prior[0][:3, :][[0, 2, 1], :].transpose()  # convert to C, R, S: 100 x 3
-    #     return s_prior_crs
-
-    # def sample_from_joint(self, n_samples):
-    #     s_prior = self.graph.sample_from_graph(n_samples)
-    #     s_prior_crs = s_prior[0][[0, 2, 1, 3], :].transpose()  # convert to C, R, S, W: 100 x 4
-    #     return s_prior_crs
-
-    def compute_log_p_w_crs(self, samples_crs, wet=1):
+    def compute_log_likelihood(self, samples, wet=1):
         # Compute the log likelihood P(W=1 | C, R, S) = P(W=1 | R, S)
-        log_lik = np.zeros((samples_crs.shape[0],))
-        for i in range(samples_crs.shape[0]):
-            c, r, s = samples_crs[i, :]
+        log_lik = np.zeros((samples.shape[0],))
+        for i in range(samples.shape[0]):
+            c, r, s = samples[i, :]
             log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[wet, s, r]]))
         return log_lik
-
-    def compute_log_likelihood(self, samples):
-        return self.compute_log_p_w_crs(samples)
 
     def compute_p_prior(self):
         p_crs = np.zeros((2, 2, 2))  # C, R, S
@@ -576,25 +495,6 @@ class SprinklerBN(object):
         posterior /= posterior.sum()
         return posterior
 
-    def compute_tvd(self, samples_crs):
-        # Total variation distance between Q and P(C, R, S | W = 1)
-        # 1) Get the counts of the samples -> Q
-        unique_rows, unique_counts = np.unique(samples_crs, axis=0, return_counts=True)
-        estimation = np.zeros((2, 2, 2), dtype=float)  # C, R, S
-        for c in range(2):
-            for r in range(2):
-                for s in range(2):
-                    idx = (unique_rows == np.array([c, r, s])).all(axis=1)
-                    if idx.any():
-                        estimation[c, r, s] = float(unique_counts[idx][0]) / samples_crs.shape[0]
-
-        # 2) Get the exact probabilities -> P
-        posterior = self.compute_posterior(wet=1)
-
-        # 3) Find max distance
-        tvd = (abs(posterior - estimation)).max()
-        return tvd
-
 
 def plot_optimization_metrics(metrics, save=False):
     fig, ax = plt.subplots(1, 2, figsize=(13, 4))
@@ -619,9 +519,8 @@ def plot_optimization_metrics(metrics, save=False):
 def main():
 
     # Create BN object
-    # bn = SprinklerBN(random_cpd=False)
-    bn = SimpleBN2()
-    bn.compute_joint()
+    bn = SprinklerBN(random_cpd=True)
+    # bn = SimpleBN2()
 
     # Initialize a born machine
     bm = BornMachine(len(bn.graph.nodes)-1, n_blocks=1,

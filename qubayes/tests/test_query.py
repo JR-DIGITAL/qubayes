@@ -1,5 +1,5 @@
 import unittest
-from qubayes.qubayes_tools import Query
+from qubayes.qubayes_tools import QBNMusicQuery
 import numpy as np
 
 
@@ -8,7 +8,7 @@ class MyTestCase(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super(MyTestCase, self).__init__(*args, **kwargs)
         self.n_shots = 4096
-        self.query = Query()
+        self.query = QBNMusicQuery()
         self.query.create_model(n_artists=4,
                                 n_genres=['rock', 'jazz', 'blues', 'rockabilly'],
                                 n_tempi=2,
@@ -119,7 +119,7 @@ class MyTestCase2(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super(MyTestCase2, self).__init__(*args, **kwargs)
         self.n_shots = 4096
-        self.query = Query()
+        self.query = QBNMusicQuery()
         self.query.create_model(n_artists=32,
                                 n_genres=['rockabilly', 'blues', 'rock', 'jazz'],
                                 use_ancillas=False)

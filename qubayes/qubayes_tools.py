@@ -559,97 +559,15 @@ class Graph:
 class Query:
 
     def __init__(self):
-        self.qbn = None
         self.graph_orig = None
         self.target = None
         self.evidence = None
-        self.use_ancillas = False
-        self.qbn_collapsed = False
         self.verbose = False
-
-    def create_model(self, n_artists=4, n_genres=4, n_tempi=2, n_modes=2, n_time_signature=2, use_ancillas=False, model_fln=None):
-        self.use_ancillas = use_ancillas
-        nodes = {'artists': Node('artists'),
-                 'track_genre': Node('track_genre', parents=list(['artists'])),
-                 'tempo': Node('tempo', parents=list(['track_genre'])),
-                 'mode': Node('mode', parents=list(['track_genre'])),
-                 'time_signature': Node('time_signature', parents=list(['track_genre']))}
-        graph = Graph(nodes, verbose=self.verbose)
-        if model_fln is not None and os.path.exists(MODEL_FLN):
-            graph.load_from_file(MODEL_FLN)
-        else:
-            bins = {'track_genre': n_genres, 'artists': n_artists, 'tempo': n_tempi,
-                    'mode': n_modes, 'time_signature': n_time_signature}
-            ds = MusicDataset(bins, verbose=self.verbose)
-            graph.set_probabilities(ds)
-            graph.save_to_file(MODEL_FLN)
-        self.graph_orig = deepcopy(graph)
-        graph.binarize()
-        self.qbn = QBN(graph, use_ancillas=self.use_ancillas)
-
-    def rebuild_qbn(self):
-        graph = deepcopy(self.graph_orig)
-        graph.binarize()
-        self.qbn = QBN(graph, use_ancillas=self.use_ancillas)
 
     def load_graph(self, model_fln, use_ancillas=True):
         graph = Graph()
         graph.load_from_file(model_fln)
         self.graph_orig = deepcopy(graph)
-        graph.binarize()
-        self.qbn = QBN(graph, use_ancillas=use_ancillas)
-
-    def set_bit_string(self, attr, cond_str):
-        qubits = self.qbn.get_qubits_from_attribute(attr)
-        if attr in self.evidence.keys():
-            state_str = self.qbn.graph.bin_state_from_category(attr, self.evidence[attr])
-        else:
-            state_str = self.qbn.graph.bin_state_from_category(attr, self.target[attr])
-        for i in range(len(qubits)):
-            cond_str[qubits[i]] = state_str[len(qubits) - i - 1]  # q0 is first
-        return cond_str
-
-    def predict_from_samples(self, samples):
-        # find out which qubits have fixed values (0 or 1) and which ones have to be marginalized (-1)
-        cond_str = np.ones((self.qbn.n_qubits - self.qbn.n_ancillas,), dtype=int) * (-1)
-        for attr in self.target.keys():
-            cond_str = self.set_bit_string(attr, cond_str)
-        for attr in self.evidence.keys():
-            cond_str = self.set_bit_string(attr, cond_str)
-        cond_str = cond_str[::-1]
-        mask = cond_str >= 0
-
-        # nominator: count samples with matching target AND evidence
-        nom = 0.
-        for k, v in samples.items():
-            sample_bits = np.array(list(map(int, k)))
-            if np.array_equal(cond_str[mask], sample_bits[mask]):
-                nom += v
-        if nom == 0:
-            return 0.
-
-        # denominator: count samples with matching evidence
-        cond_str = np.ones((self.qbn.n_qubits - self.qbn.n_ancillas,), dtype=int) * (-1)
-        for attr in self.evidence.keys():
-            cond_str = self.set_bit_string(attr, cond_str)
-        cond_str = cond_str[::-1]
-        mask = cond_str >= 0
-
-        denom = 0.
-        for k, v in samples.items():
-            sample_bits = np.array(list(map(int, k)))
-            if np.array_equal(cond_str[mask], sample_bits[mask]):
-                denom += v
-        return nom / denom
-
-    def perform_rejection_sampling(self, shots=1024, iterations=1, verbose=False, seed=42):
-        if self.qbn_collapsed:
-            self.rebuild_qbn()
-        evidence = self.qbn.create_evidence_states(self.evidence)
-        result, circuit_params, acc_rate = self.qbn.perform_rejection_sampling(
-            evidence, iterations=iterations, shots=shots, verbose=verbose, seed=seed)
-        self.qbn_collapsed = True
-        return self.predict_from_samples(result), acc_rate
 
     def perform_classical_rejection_sampling(self, shots=1024):
         # Go through graph hierarchy and create samples
@@ -695,6 +613,88 @@ class Query:
         else:
             return deepcopy(self.graph_orig.nodes[var].data[:, idx_parents]), None
         return deepcopy(self.graph_orig.nodes[var].data[idx, idx_parents]), idx
+
+    def get_true_result(self):
+        pass
+
+
+class QBNQuery(Query):
+
+    def __init__(self):
+        super().__init__()
+        self.use_ancillas = False
+        self.qbn_collapsed = False
+        self.qbn = None
+
+    def load_graph(self, model_fln, use_ancillas=True):
+        graph = Graph()
+        graph.load_from_file(model_fln)
+        self.graph_orig = deepcopy(graph)
+        graph.binarize()
+        self.qbn = QBN(graph, use_ancillas=use_ancillas)
+
+    def perform_rejection_sampling(self, shots=1024, iterations=1, verbose=False, seed=42):
+        if self.qbn_collapsed:
+            self.rebuild_qbn()
+        evidence = self.qbn.create_evidence_states(self.evidence)
+        result, circuit_params, acc_rate = self.qbn.perform_rejection_sampling(
+            evidence, iterations=iterations, shots=shots, verbose=verbose, seed=seed)
+        self.qbn_collapsed = True
+        return self.predict_from_samples(result), acc_rate
+
+    def set_bit_string(self, attr, cond_str):
+        qubits = self.qbn.get_qubits_from_attribute(attr)
+        if attr in self.evidence.keys():
+            state_str = self.qbn.graph.bin_state_from_category(attr, self.evidence[attr])
+        else:
+            state_str = self.qbn.graph.bin_state_from_category(attr, self.target[attr])
+        for i in range(len(qubits)):
+            cond_str[qubits[i]] = state_str[len(qubits) - i - 1]  # q0 is first
+        return cond_str
+
+    def predict_from_samples(self, samples):
+        # find out which qubits have fixed values (0 or 1) and which ones have to be marginalized (-1)
+        cond_str = np.ones((self.qbn.n_qubits - self.qbn.n_ancillas,), dtype=int) * (-1)
+        for attr in self.target.keys():
+            cond_str = self.set_bit_string(attr, cond_str)
+        for attr in self.evidence.keys():
+            cond_str = self.set_bit_string(attr, cond_str)
+        cond_str = cond_str[::-1]
+        mask = cond_str >= 0
+
+        # nominator: count samples with matching target AND evidence
+        nom = 0.
+        for k, v in samples.items():
+            sample_bits = np.array(list(map(int, k)))
+            if np.array_equal(cond_str[mask], sample_bits[mask]):
+                nom += v
+        if nom == 0:
+            return 0.
+
+        # denominator: count samples with matching evidence
+        cond_str = np.ones((self.qbn.n_qubits - self.qbn.n_ancillas,), dtype=int) * (-1)
+        for attr in self.evidence.keys():
+            cond_str = self.set_bit_string(attr, cond_str)
+        cond_str = cond_str[::-1]
+        mask = cond_str >= 0
+
+        denom = 0.
+        for k, v in samples.items():
+            sample_bits = np.array(list(map(int, k)))
+            if np.array_equal(cond_str[mask], sample_bits[mask]):
+                denom += v
+        return nom / denom
+
+    def rebuild_qbn(self):
+        graph = deepcopy(self.graph_orig)
+        graph.binarize()
+        self.qbn = QBN(graph, use_ancillas=self.use_ancillas)
+
+
+class MusicQuery(Query):
+
+    def __init__(self):
+        super().__init__()
 
     def get_true_result(self):
         # This function computes the conditional probability of the corresponding query.
@@ -772,3 +772,29 @@ class Query:
             denom *= p
 
         return nom.sum() / denom.sum()
+
+
+class QBNMusicQuery(QBNQuery, MusicQuery):
+
+    def __init__(self):
+        super().__init__()
+
+    def create_model(self, n_artists=4, n_genres=4, n_tempi=2, n_modes=2, n_time_signature=2, use_ancillas=False, model_fln=None):
+        self.use_ancillas = use_ancillas
+        nodes = {'artists': Node('artists'),
+                 'track_genre': Node('track_genre', parents=list(['artists'])),
+                 'tempo': Node('tempo', parents=list(['track_genre'])),
+                 'mode': Node('mode', parents=list(['track_genre'])),
+                 'time_signature': Node('time_signature', parents=list(['track_genre']))}
+        graph = Graph(nodes, verbose=self.verbose)
+        if model_fln is not None and os.path.exists(MODEL_FLN):
+            graph.load_from_file(MODEL_FLN)
+        else:
+            bins = {'track_genre': n_genres, 'artists': n_artists, 'tempo': n_tempi,
+                    'mode': n_modes, 'time_signature': n_time_signature}
+            ds = MusicDataset(bins, verbose=self.verbose)
+            graph.set_probabilities(ds)
+            graph.save_to_file(MODEL_FLN)
+        self.graph_orig = deepcopy(graph)
+        graph.binarize()
+        self.qbn = QBN(graph, use_ancillas=self.use_ancillas)
