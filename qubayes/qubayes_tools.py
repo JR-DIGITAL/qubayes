@@ -102,6 +102,7 @@ class QBN:
         self.use_ancillas = use_ancillas
         self.ancilla_qubits = []
         self.verbose = verbose
+        self.collapsed = False
 
         if qc is None:
             self.create_circuit()
@@ -147,6 +148,7 @@ class QBN:
         self.add_measurements()
         result, circuit_params = run_circuit(self.qc, shots=shots, seed=seed)
         print(sorted(result.items(), key=lambda item: item[1], reverse=True))
+        self.collapsed = True
         return result
 
     def perform_rejection_sampling(self, evidence, iterations=1, shots=1024, verbose=False, seed=42):
@@ -157,6 +159,7 @@ class QBN:
         self.add_measurements()
 
         result, circuit_params = run_circuit(self.qc, draw_circuit=False, shots=shots, seed=seed)
+        self.collapsed = True
         if verbose:
             print(sorted(result.items(), key=lambda item: item[1], reverse=True))
         accepted = 0
@@ -471,14 +474,14 @@ class Graph:
                     new_node = Node(node.name + '.' + str(i), prob,
                                     parents=parents, states=states)
                     new_nodes[new_node.name] = new_node
-            else:
+            else:  # node is binary
                 if node.has_parents():
                     prob = np.zeros([2] * (node.n_parents() + 1))
                     for p_ext in range(max([1, 2 * node.n_parents()])):
                         bin_state_ext = [int(d) for d in str(bin(p_ext))[2:].zfill(node.n_parents())]
                         data_state_ext = np.unravel_index(p_ext, node.data.shape[1:])
                         state_tuple_0 = tuple([0]) + tuple(bin_state_ext)
-                        prob[state_tuple_0] = node.data[0, data_state_ext][0]
+                        prob[state_tuple_0] = node.data[tuple([0]) + data_state_ext]
                         state_tuple_1 = tuple([1]) + tuple(bin_state_ext)
                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                     new_node = Node(node.name, prob, parents=node.parents,
@@ -622,7 +625,6 @@ class QBNQuery(Query):
     def __init__(self):
         super().__init__()
         self.use_ancillas = False
-        self.qbn_collapsed = False
         self.qbn = None
 
     def load_graph(self, model_fln, use_ancillas=True):
@@ -633,12 +635,12 @@ class QBNQuery(Query):
         self.qbn = QBN(graph, use_ancillas=use_ancillas)
 
     def perform_rejection_sampling(self, shots=1024, iterations=1, verbose=False, seed=42):
-        if self.qbn_collapsed:
+        if self.qbn.collapsed:
             self.rebuild_qbn()
         evidence = self.qbn.create_evidence_states(self.evidence)
         result, circuit_params, acc_rate = self.qbn.perform_rejection_sampling(
             evidence, iterations=iterations, shots=shots, verbose=verbose, seed=seed)
-        self.qbn_collapsed = True
+        self.qbn.collapsed = True
         return self.predict_from_samples(result), acc_rate
 
     def set_bit_string(self, attr, cond_str):

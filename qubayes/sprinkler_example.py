@@ -5,17 +5,14 @@ Murphys lecture notes: https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html
 __author__ = "Florian Krebs"
 
 import numpy as np
-from qubayes.qubayes_tools import QBNQuery, Node, QBN, Graph
+from qubayes.qubayes_tools import QBNQuery, Node, Graph
 
 
 class QuerySprinkler(QBNQuery):
 
     def __init__(self):
         super(QuerySprinkler, self).__init__()
-        self.target = None
-        self.evidence = None
         self.graph_orig = self.create_graph()
-        self.qbn = None
         self.rebuild_qbn()
 
     @staticmethod
@@ -39,11 +36,12 @@ class QuerySprinkler(QBNQuery):
 
 def main():
     QS = QuerySprinkler()
+    QS.target = {'sprinkler': 'sprinkler1'}
+    QS.evidence = {'wet': 'wet1'}
+    n_shots = 8000
 
-    n_shots = 1024
+    # Sample from QBN and compute P(S=1 | W=1) and P(R=1 | W=1) manually
     result = QS.qbn.perform_sampling(shots=n_shots)
-
-    # Manual computation from the joint
     P_W1 = 0
     for k, v in result.items():
         if k[0] == '1':
@@ -65,9 +63,8 @@ def main():
 
     print(f'P(R=1|W=1)={P_R1W1 / P_W1:.3f}, true=0.708')  # True: 0.708
 
-    # Use amplitude amplification
-    QS.target = {'sprinkler': 'sprinkler1'}
-    QS.evidence = {'wet': 'wet1'}
+    # Use QRS with 0 and 2 iterations
+
     prob, acc_rate_i = QS.perform_rejection_sampling(iterations=0,
                                                      shots=n_shots,
                                                      seed=41)
