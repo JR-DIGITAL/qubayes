@@ -476,10 +476,9 @@ class Graph:
                     prob = np.zeros([2] * (node.n_parents() + 1))
                     for p_ext in range(max([1, 2 * node.n_parents()])):
                         bin_state_ext = [int(d) for d in str(bin(p_ext))[2:].zfill(node.n_parents())]
+                        data_state_ext = np.unravel_index(p_ext, node.data.shape[1:])
                         state_tuple_0 = tuple([0]) + tuple(bin_state_ext)
-                        # TODO: node.data can be of ndim > 2, if there was more
-                        #  than one parent in the original (non-binarized) graph
-                        prob[state_tuple_0] = node.data[0, p_ext]
+                        prob[state_tuple_0] = node.data[0, data_state_ext][0]
                         state_tuple_1 = tuple([1]) + tuple(bin_state_ext)
                         prob[state_tuple_1] = 1 - prob[state_tuple_0]
                     new_node = Node(node.name, prob, parents=node.parents,

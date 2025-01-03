@@ -5,33 +5,43 @@ Murphys lecture notes: https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html
 __author__ = "Florian Krebs"
 
 import numpy as np
-from qubayes.qubayes_tools import Query, Node, QBN, Graph
+from qubayes.qubayes_tools import QBNQuery, Node, QBN, Graph
 
 
-def create_graph():
-    cloudy = Node('cloudy', data=np.array([0.5, 0.5]))
-    sprinkler = Node('sprinkler', data=np.array([[0.5, 0.9],
-                                                 [0.5, 0.1]]),
-                     parents=['cloudy'])
-    rain = Node('rain', data=np.array([[0.8, 0.2],
-                                       [0.2, 0.8]]),
-                parents=['cloudy'])
-    probs_wet = np.array([[[1.0, 0.1],  # shape (wet, sprinkler, rain)
-                           [0.1, 0.01]],
-                          [[0.0, 0.9],
-                           [0.9, 0.99]]])
-    wet = Node('wet', data=probs_wet,
-               parents=['sprinkler', 'rain'])
-    bn = Graph({'cloudy': cloudy, 'sprinkler': sprinkler, 'rain': rain, 'wet': wet})
-    return bn
+class QuerySprinkler(QBNQuery):
+
+    def __init__(self):
+        super(QuerySprinkler, self).__init__()
+        self.target = None
+        self.evidence = None
+        self.graph_orig = self.create_graph()
+        self.qbn = None
+        self.rebuild_qbn()
+
+    @staticmethod
+    def create_graph():
+        cloudy = Node('cloudy', data=np.array([0.5, 0.5]))
+        sprinkler = Node('sprinkler', data=np.array([[0.5, 0.9],
+                                                     [0.5, 0.1]]),
+                         parents=['cloudy'])
+        rain = Node('rain', data=np.array([[0.8, 0.2],
+                                           [0.2, 0.8]]),
+                    parents=['cloudy'])
+        probs_wet = np.array([[[1.0, 0.1],  # shape (wet, sprinkler, rain)
+                               [0.1, 0.01]],
+                              [[0.0, 0.9],
+                               [0.9, 0.99]]])
+        wet = Node('wet', data=probs_wet,
+                   parents=['sprinkler', 'rain'])
+        bn = Graph({'cloudy': cloudy, 'sprinkler': sprinkler, 'rain': rain, 'wet': wet})
+        return bn
 
 
 def main():
-    bn = create_graph()
+    QS = QuerySprinkler()
 
-    qbn = QBN(bn)
     n_shots = 1024
-    result = qbn.perform_sampling(shots=n_shots)
+    result = QS.qbn.perform_sampling(shots=n_shots)
 
     # Manual computation from the joint
     P_W1 = 0
@@ -56,30 +66,18 @@ def main():
     print(f'P(R=1|W=1)={P_R1W1 / P_W1:.3f}, true=0.708')  # True: 0.708
 
     # Use amplitude amplification
-    class QuerySprinkler(Query):
-
-        def __init__(self, graph):
-            super(QuerySprinkler, self).__init__()
-            self.target = {'sprinkler': 'sprinkler1'}
-            self.evidence = {'wet': 'wet1'}
-            self.graph_orig = graph
-            self.qbn = QBN(graph)
-
-    QS = QuerySprinkler(bn)
+    QS.target = {'sprinkler': 'sprinkler1'}
+    QS.evidence = {'wet': 'wet1'}
     prob, acc_rate_i = QS.perform_rejection_sampling(iterations=0,
                                                      shots=n_shots,
                                                      seed=41)
     print(f'P(S=1|W=1)={prob:.3f} (true=0.430), acceptance ratio={acc_rate_i:.3f}')
     QS.qbn.qc.draw(output='mpl', filename='./circuit.png')
-    QS = QuerySprinkler(bn)
+
     prob, acc_rate_i = QS.perform_rejection_sampling(iterations=2,
                                                      shots=n_shots,
                                                      seed=41)
     print(f'P(S=1|W=1)={prob:.3f} (true=0.430), acceptance ratio={acc_rate_i:.3f}')
-
-
-
-
     return
 
 
