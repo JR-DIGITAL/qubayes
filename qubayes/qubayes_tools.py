@@ -626,32 +626,36 @@ class Query:
             return deepcopy(self.graph_orig.nodes[var].data[:, idx_parents]), None
         return deepcopy(self.graph_orig.nodes[var].data[idx, idx_parents]), idx
 
-    def get_true_result(self):
-        # This function computes the conditional probability of the corresponding query.
-        # Uses P(t | e) = P(t, e) / P(e)
+    def get_p_evidence(self):
+        p, an = self.graph_orig.marginalize_all_but(list(self.evidence.keys()),
+                                                    return_axis_names=True)
         ev_dict = dict()
         for key, value in self.evidence.items():
             ev_dict[key] = self.graph_orig.categories[key][value]
-        tar_dict = dict()
-        for key, value in self.target.items():
-            tar_dict[key] = self.graph_orig.categories[key][value]
-        all_dict = ev_dict | tar_dict
+        idx1 = tuple([ev_dict[n] for n in an])
+        return p[idx1]
+
+    def get_true_result(self):
+        # This function computes the conditional probability of the corresponding query.
+        # Uses P(t | e) = P(t, e) / P(e)
+        all_dict = dict()
+        evta_dict = self.evidence | self.target
+        for key, value in evta_dict.items():
+            all_dict[key] = self.graph_orig.categories[key][value]
         # P(t, e)
         nom, axis_evta = self.graph_orig.marginalize_all_but(
             list(self.target.keys()) + list(self.evidence.keys()), return_axis_names=True)
         # P(e)
-        denom, axis_ev = self.graph_orig.marginalize_all_but(
-            list(self.evidence.keys()), return_axis_names=True)
+        denom = self.get_p_evidence()
         idx0 = tuple([all_dict[n] for n in axis_evta])
-        idx1 = tuple([ev_dict[n] for n in axis_ev])
-        return nom[idx0] / denom[idx1]
+        return nom[idx0] / denom
 
 
 class QBNQuery(Query):
 
-    def __init__(self):
+    def __init__(self, use_ancillas=False):
         super().__init__()
-        self.use_ancillas = False
+        self.use_ancillas = use_ancillas
         self.qbn = None
 
     def load_graph(self, model_fln, use_ancillas=True):
@@ -661,14 +665,17 @@ class QBNQuery(Query):
         graph.binarize()
         self.qbn = QBN(graph, use_ancillas=use_ancillas)
 
-    def perform_rejection_sampling(self, shots=1024, iterations=1, verbose=False, seed=42):
-        if self.qbn.collapsed:
+    def perform_rejection_sampling(self, shots=1024, iterations=1, verbose=False, seed=42, return_circuit_params=False):
+        if self.qbn is None or self.qbn.collapsed:
             self.rebuild_qbn()
         evidence = self.qbn.create_evidence_states(self.evidence)
         result, circuit_params, acc_rate = self.qbn.perform_rejection_sampling(
             evidence, iterations=iterations, shots=shots, verbose=verbose, seed=seed)
         self.qbn.collapsed = True
-        return self.predict_from_samples(result), acc_rate
+        if return_circuit_params:
+            return self.predict_from_samples(result), acc_rate, circuit_params
+        else:
+            return self.predict_from_samples(result), acc_rate
 
     def set_bit_string(self, attr, cond_str):
         qubits = self.qbn.get_qubits_from_attribute(attr)
@@ -717,6 +724,13 @@ class QBNQuery(Query):
         graph = deepcopy(self.graph_orig)
         graph.binarize()
         self.qbn = QBN(graph, use_ancillas=self.use_ancillas)
+
+    def get_optimal_grover_iterations(self):
+        # compute the initial probability of states matching the evidence
+        initial_prob = self.get_p_evidence()
+        theta = np.arcsin(np.sqrt(initial_prob))
+        k_opt = int(np.pi / (4 * theta))
+        return k_opt
 
 
 class MusicQuery(Query):
