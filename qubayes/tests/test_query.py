@@ -1,5 +1,6 @@
 import unittest
 from qubayes.qubayes_tools import QBNMusicQuery
+from qubayes.sprinkler_example import QuerySprinkler
 import numpy as np
 
 
@@ -153,6 +154,25 @@ class MyTestCase2(unittest.TestCase):
         # TODO: Here seems to something wrong, there is a consistent high error
         [prob, acc] = self.query.perform_rejection_sampling(shots=10000, iterations=0)
         np.testing.assert_allclose(prob, prob_exact, atol=0.1)
+
+
+class MyTestCase3(unittest.TestCase):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.query = QuerySprinkler()
+
+    def test_exact_posterior(self):
+        self.query.target = {'sprinkler': 'sprinkler1'}
+        self.query.evidence = {'wet': 'wet1'}
+        exact_S1_W1 = self.query.get_true_result()
+        np.testing.assert_allclose(exact_S1_W1, 0.42976356050069553, atol=1e-5)
+
+        self.query.target = {'rain': 'rain1'}
+        self.query.evidence = {'wet': 'wet1'}
+        exact_R1_W1 = self.query.get_true_result()
+        np.testing.assert_allclose(exact_R1_W1, 0.7079276773296247, atol=1e-5)
+
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ Murphys lecture notes: https://www.cs.ubc.ca/~murphyk/Bayes/bnintro.html
 __author__ = "Florian Krebs"
 
 import numpy as np
-from qubayes.qubayes_tools import QBNQuery, Node, Graph, BayesNet
+from qubayes.qubayes_tools import Query, QBNQuery, Node, Graph, BayesNet
 
 
 class SprinklerBN(BayesNet):
@@ -84,18 +84,23 @@ class SprinklerBN(BayesNet):
         return posterior
 
 
-class QuerySprinkler(QBNQuery):
+class QuerySprinkler(Query):
 
     def __init__(self):
-        super(QuerySprinkler, self).__init__()
+        super().__init__()
+        self.graph_orig = SprinklerBN.create_graph()
+
+
+class QBNQuerySprinkler(QBNQuery):
+
+    def __init__(self):
+        super().__init__()
         self.graph_orig = SprinklerBN.create_graph()
         self.rebuild_qbn()
 
 
 def main():
-    QS = QuerySprinkler()
-    QS.target = {'sprinkler': 'sprinkler1'}
-    QS.evidence = {'wet': 'wet1'}
+    QS = QBNQuerySprinkler()
     n_shots = 8000
 
     # Sample from QBN and compute P(S=1 | W=1) and P(R=1 | W=1) manually
