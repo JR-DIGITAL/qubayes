@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from qubayes.qubayes_tools import Node, Graph
 import itertools
 from qiskit_algorithms import optimizers
+from qubayes_tools import BayesNet
 
 
 def logit(x):
@@ -363,29 +364,6 @@ class BornMachine(object):
         return out
 
 
-class BayesNet(object):
-
-    def __init__(self, graph):
-        self.graph = graph
-
-    def compute_joint(self):
-        return self.graph.compute_joint()
-
-    def compute_posterior(self, wet=1):
-        posterior = self.graph.compute_posterior({'wet': wet})
-        return posterior
-
-    def sample_from_posterior(self, n_samples, wet=1):
-        posterior = self.compute_posterior(wet=wet)
-        flat_probs = posterior.flatten()
-        indices = np.arange(flat_probs.size)
-        # Sample indices based on probabilities
-        sampled_indices = np.random.choice(indices, size=n_samples, p=flat_probs)
-        # Map back to 2D indices
-        samples = np.array([np.array(np.unravel_index(i, posterior.shape), dtype=int) for i in sampled_indices])
-        return samples
-
-
 class SimpleBN(BayesNet):
 
     def __init__(self):
@@ -438,62 +416,7 @@ class SimpleBN2(BayesNet):
         return log_lik
 
 
-class SprinklerBN(BayesNet):
 
-    def __init__(self, random_cpd=True):
-        self.random_cpd = random_cpd
-        self.graph = create_sprinkler_graph()
-        if random_cpd:
-            self.graph.nodes['cloudy'].data[0] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['cloudy'].data[1] = 1. - self.graph.nodes['cloudy'].data[0]
-            self.graph.nodes['rain'].data[0, 0] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['rain'].data[1, 0] = 1. - self.graph.nodes['rain'].data[0, 0]
-            self.graph.nodes['rain'].data[0, 1] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['rain'].data[1, 1] = 1. - self.graph.nodes['rain'].data[0, 1]
-            self.graph.nodes['sprinkler'].data[0, 0] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['sprinkler'].data[1, 0] = 1. - self.graph.nodes['sprinkler'].data[0, 0]
-            self.graph.nodes['sprinkler'].data[0, 1] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['sprinkler'].data[1, 1] = 1. - self.graph.nodes['sprinkler'].data[0, 1]
-            self.graph.nodes['wet'].data[0, 0, 0] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['wet'].data[1, 0, 0] = 1. - self.graph.nodes['wet'].data[0, 0, 0]
-            self.graph.nodes['wet'].data[0, 0, 1] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['wet'].data[1, 0, 1] = 1. - self.graph.nodes['wet'].data[0, 0, 1]
-            self.graph.nodes['wet'].data[0, 1, 0] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['wet'].data[1, 1, 0] = 1. - self.graph.nodes['wet'].data[0, 1, 0]
-            self.graph.nodes['wet'].data[0, 1, 1] = np.random.uniform(low=0.01, high=0.99)
-            self.graph.nodes['wet'].data[1, 1, 1] = 1. - self.graph.nodes['wet'].data[0, 1, 1]
-
-    def compute_log_likelihood(self, samples, wet=1):
-        # Compute the log likelihood P(W=1 | C, R, S) = P(W=1 | R, S)
-        log_lik = np.zeros((samples.shape[0],))
-        for i in range(samples.shape[0]):
-            c, r, s = samples[i, :]
-            log_lik[i] = np.log(max([1e-3, self.graph.nodes['wet'].data[wet, s, r]]))
-        return log_lik
-
-    def compute_p_prior(self):
-        p_crs = np.zeros((2, 2, 2))  # C, R, S
-        for c in range(2):
-            prob = self.graph.nodes['cloudy'].data[c]
-            for r in range(2):
-                prob2 = prob * self.graph.nodes['rain'].data[r, c]
-                for s in range(2):
-                    p_crs[c, r, s] = prob2 * self.graph.nodes['sprinkler'].data[s, c]
-        return p_crs / p_crs.sum()
-
-    def compute_posterior(self, wet=1):
-        # Get the exact probabilities -> P(C, R, S | W = 1)
-        posterior = np.zeros((2, 2, 2))  # C, R, S
-        for c in range(2):
-            prob = self.graph.nodes['cloudy'].data[c]
-            for r in range(2):
-                prob2 = prob * self.graph.nodes['rain'].data[r, c]
-                for s in range(2):
-                    prob3 = prob2 * self.graph.nodes['sprinkler'].data[s, c]
-                    prob3 *= self.graph.nodes['wet'].data[wet, s, r]
-                    posterior[c, r, s] = prob3
-        posterior /= posterior.sum()
-        return posterior
 
 
 def plot_optimization_metrics(metrics, save=False):

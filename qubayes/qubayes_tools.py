@@ -532,7 +532,8 @@ class Graph:
         return joint
 
     def compute_posterior(self, evidence=None):
-        # evidence is a dict, e.g. {'wet': 1, 'rain': 0}
+        # Evidence is a dict with category indices, e.g. {'wet': 1, 'rain': 0}
+        # Computes the joint, conditioned on the evidence
         joint = self.compute_joint()
         # perform conditioning on evidence
         if evidence is None:
@@ -541,21 +542,27 @@ class Graph:
             nodes_idx = dict()
             for i, name in enumerate(self.nodes.keys()):
                 nodes_idx[name] = i
-            posterior = joint
+            posterior = deepcopy(joint)
             slices = [slice(None)] * joint.ndim
             for i, (name, value) in enumerate(evidence.items()):
                 slices[nodes_idx[name]] = value
             posterior = posterior[tuple(slices)]
         return posterior / posterior.sum()
 
-    def marginalize_all_but(self, node_names):
+    def marginalize_all_but(self, node_names, return_axis_names=False):
         joint = self.compute_joint()
         sum_over = []
+        axis_names = []
         for i, name in enumerate(self.nodes.keys()):
             if name not in node_names:
                 sum_over.append(i)
+            else:
+                axis_names.append(name)
         marginal = joint.sum(axis=tuple(sum_over))
-        return marginal
+        if return_axis_names:
+            return marginal, axis_names
+        else:
+            return marginal
 
 
 class Query:
@@ -590,7 +597,10 @@ class Query:
             ok = ok & (samples[node_idx, :] == val_idx)
         nom = sum(ok)
         acc_rate = denom / shots
-        return float(nom) / float(denom), acc_rate
+        if denom > 0:
+            return float(nom) / float(denom), acc_rate
+        else:
+            return np.nan, acc_rate
 
     def perform_likelihood_weighted_sampling(self, shots=1024):
         pass
@@ -617,7 +627,24 @@ class Query:
         return deepcopy(self.graph_orig.nodes[var].data[idx, idx_parents]), idx
 
     def get_true_result(self):
-        pass
+        # This function computes the conditional probability of the corresponding query.
+        # Uses P(t | e) = P(t, e) / P(e)
+        ev_dict = dict()
+        for key, value in self.evidence.items():
+            ev_dict[key] = self.graph_orig.categories[key][value]
+        tar_dict = dict()
+        for key, value in self.target.items():
+            tar_dict[key] = self.graph_orig.categories[key][value]
+        all_dict = ev_dict | tar_dict
+        # P(t, e)
+        nom, axis_evta = self.graph_orig.marginalize_all_but(
+            list(self.target.keys()) + list(self.evidence.keys()), return_axis_names=True)
+        # P(e)
+        denom, axis_ev = self.graph_orig.marginalize_all_but(
+            list(self.evidence.keys()), return_axis_names=True)
+        idx0 = tuple([all_dict[n] for n in axis_evta])
+        idx1 = tuple([ev_dict[n] for n in axis_ev])
+        return nom[idx0] / denom[idx1]
 
 
 class QBNQuery(Query):
@@ -799,3 +826,26 @@ class QBNMusicQuery(QBNQuery, MusicQuery):
         self.graph_orig = deepcopy(graph)
         graph.binarize()
         self.qbn = QBN(graph, use_ancillas=self.use_ancillas)
+
+
+class BayesNet(object):
+
+    def __init__(self, graph):
+        self.graph = graph
+
+    def compute_joint(self):
+        return self.graph.compute_joint()
+
+    def compute_posterior(self, wet=1):
+        posterior = self.graph.compute_posterior({'wet': wet})
+        return posterior
+
+    def sample_from_posterior(self, n_samples, wet=1):
+        posterior = self.compute_posterior(wet=wet)
+        flat_probs = posterior.flatten()
+        indices = np.arange(flat_probs.size)
+        # Sample indices based on probabilities
+        sampled_indices = np.random.choice(indices, size=n_samples, p=flat_probs)
+        # Map back to 2D indices
+        samples = np.array([np.array(np.unravel_index(i, posterior.shape), dtype=int) for i in sampled_indices])
+        return samples
