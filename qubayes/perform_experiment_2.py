@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 from dataset_stats import MusicDataset
 from qubayes_tools import Graph, Node, QBN
 from config import OUT_DIR
+from datetime import datetime
 
 
 def create_model(nodes, n_artists, use_ancillas=False):
@@ -26,15 +27,83 @@ def create_model(nodes, n_artists, use_ancillas=False):
     qbn = QBN(graph, use_ancillas=use_ancillas)
     evidence = {'artists': 'Ella Fitzgerald',
                 'mode': 'major'}
+    pos = 0
+    for i in range(ds.data.shape[0]):
+        ok = True
+        for k, v in evidence.items():
+            if ds.data[k].iloc[i] != v:
+                ok = False
+                break
+        if ok:
+            pos += 1
+    p_evidence = pos / ds.data.shape[0]
+
     evidence = qbn.create_evidence_states(evidence)
     print(f'Chose {len(evidence)} states for amplification')
-    return qbn, evidence
+    return qbn, evidence, p_evidence
+
+
+def create_plot0(data, save_fln):
+    plt.rcParams.update({'font.size': 22})
+    fig, ax = plt.subplots(nrows=3, sharex=True, figsize=(10, 7))
+
+    ax[0].plot(data['acc_rate_plain'], label='classical RS', linewidth=3, marker='x', markersize=10)
+    ax[0].plot(data['acc_rate_aa'], label='quantum RS', linewidth=3, marker='o', markersize=10)
+    ax[0].legend()
+    ax[0].set_xticks(range(len(data['n_artists'])))
+    ax[0].set_xticklabels(data['n_artists'])
+    ax[0].set_ylabel('Acceptance ratio')
+    ax[0].grid()
+
+    ax[1].plot(data['depth_plain'], label='without amplitude amplification', linewidth=3, marker='x', markersize=10)
+    ax[1].plot(data['depth_aa'], label='with amplitude amplification', linewidth=3, marker='o', markersize=10)
+    ax[1].legend()
+    ax[1].set_xticks(range(len(data['n_artists'])))
+    ax[1].set_xticklabels(data['n_artists'])
+    ax[1].set_ylabel('Circuit depth')
+    ax[1].grid()
+
+    ax[2].plot(data['p_evidence'], label='P(evidence)', linewidth=3, marker='x', markersize=10)
+    ax[2].legend()
+    ax[2].set_xticks(range(len(data['n_artists'])))
+    ax[2].set_xticklabels(data['n_artists'])
+    ax[2].set_ylabel('P(evidence)')
+    ax[2].set_xlabel('Number of artists')
+    ax[2].grid()
+
+    plt.subplots_adjust(left=0.2)
+
+    plt.savefig(save_fln.replace('.npz', '.png'), dpi=200)
+    print(f'Saved figure to {save_fln.replace(".npz", ".png")}.')
+
+
+def create_plot1(data, save_fln):
+    plt.rcParams.update({'font.size': 22})
+    fig, ax = plt.subplots(nrows=2, sharex=True, figsize=(10, 7))
+
+    ax[0].plot(1. / data['p_evidence'], label='1 / P(evidence)', linewidth=3, marker='x', markersize=10)
+    ax[0].legend()
+    ax[0].set_xticks(range(len(data['n_artists'])))
+    ax[0].set_xticklabels(data['n_artists'])
+    # ax[0].set_ylabel('1 / P(evidence)')
+    ax[0].set_xlabel('Number of artists')
+    ax[0].grid()
+
+    ax[1].plot(data['depth_aa'], label='Circuit depth', linewidth=3, marker='x', markersize=10)
+    ax[1].legend()
+    ax[1].set_xticks(range(len(data['n_artists'])))
+    ax[1].set_xticklabels(data['n_artists'])
+    # ax[1].set_ylabel('Circuit depth')
+    ax[1].grid()
+    fln = save_fln.replace('.npz', '_p_evidence.png')
+    plt.savefig(fln, dpi=200)
+    print(f'Saved figure to {fln}.')
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_ancillas", action='store_true', help="Use ancilla qubits for creating the C^n Ry gates.")
-    parser.add_argument("--recompute", action='store_true', help="Do not use saved intermediate results.")
+    parser.add_argument("--recompute", action='store_true', help="Recompute results.")
     parser.add_argument("--max_artists", type=int, default=512, help="Max number of artists (default: %(default)s)")
     args = parser.parse_args()
     if args.use_ancillas:
@@ -58,12 +127,13 @@ def main():
         cnots_plain = np.zeros((len(n_artists),))
         qubits_plain = np.zeros((len(n_artists),))
         acc_rate_plain = np.zeros((len(n_artists),))
+        p_evidence = np.zeros((len(n_artists),))
 
         print('Without amplitude amplification')
         iterations = 0  # this corresponds to not using amplitude amplification
         for i, n_artist in enumerate(n_artists):
             print(f'Using {n_artist} artists')
-            qbn, evidence = create_model(nodes, n_artist, use_ancillas=args.use_ancillas)
+            qbn, evidence, p_evidence[i] = create_model(nodes, n_artist, use_ancillas=args.use_ancillas)
             result, circuit_params, acc_rate_i = qbn.perform_rejection_sampling(evidence, iterations=iterations)
             depth_plain[i] = circuit_params['depth']
             cnots_plain[i] = circuit_params['ops']['cx']
@@ -79,7 +149,7 @@ def main():
         for i, n_artist in enumerate(n_artists):
             print(f'Using {n_artist} artists')
             for iterations in range(1, 4):  # we try between 1 and 3 grover iterations and use the best one
-                qbn, evidence = create_model(nodes, n_artist, use_ancillas=args.use_ancillas)
+                qbn, evidence, _ = create_model(nodes, n_artist, use_ancillas=args.use_ancillas)
                 result, circuit_params, acc_rate_i = qbn.perform_rejection_sampling(evidence, iterations=iterations)
                 if acc_rate_i > acc_rate_aa[i]:
                     if iterations == 1:
@@ -95,34 +165,15 @@ def main():
                 'qubits_plain': qubits_plain, 'acc_rate_plain': acc_rate_plain,
                 'depth_aa': depth_aa, 'cnots_aa': cnots_aa,
                 'qubits_aa': qubits_aa, 'acc_rate_aa': acc_rate_aa,
-                'n_artists': n_artists, 'grov_iterations': grov_iterations}
+                'n_artists': n_artists, 'grov_iterations': grov_iterations,
+                'p_evidence': p_evidence}
         np.savez(save_fln, **data)
     else:
         data = np.load(os.path.join(OUT_DIR, save_fln))
 
-    plt.rcParams.update({'font.size': 22})
-    fig, ax = plt.subplots(nrows=2, sharex=True, figsize=(10, 7))
+    create_plot0(data, save_fln)
+    create_plot1(data, save_fln)
 
-    ax[0].plot(data['acc_rate_plain'], label='classical RS', linewidth=3, marker='x', markersize=10)
-    ax[0].plot(data['acc_rate_aa'], label='quantum RS', linewidth=3, marker='o', markersize=10)
-    ax[0].legend()
-    ax[0].set_xticks(range(len(data['n_artists'])))
-    ax[0].set_xticklabels(data['n_artists'])
-    ax[0].set_ylabel('Acceptance ratio')
-    ax[0].grid()
-
-    ax[1].plot(data['depth_plain'], label='without amplitude amplification', linewidth=3, marker='x', markersize=10)
-    ax[1].plot(data['depth_aa'], label='with amplitude amplification', linewidth=3, marker='o', markersize=10)
-    ax[1].legend()
-    ax[1].set_xticks(range(len(data['n_artists'])))
-    ax[1].set_xticklabels(data['n_artists'])
-    ax[1].set_ylabel('Circuit depth')
-    ax[1].set_xlabel('Number of artists')
-    ax[1].grid()
-    plt.subplots_adjust(left=0.2)
-
-    plt.savefig(save_fln.replace('.npz', '.png'), dpi=200)
-    print(f'Saved figure to {save_fln.replace(".npz", ".png")}.')
     return
 
 
