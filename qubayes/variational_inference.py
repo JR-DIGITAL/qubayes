@@ -4,7 +4,7 @@ on the paper "Variational inference with a quantum computer" by Marcello
 Benedetti et al., 2021.
 """
 __author__ = "Florian Krebs"
-from sprinkler_example import create_graph as create_sprinkler_graph
+from sprinkler_example import SprinklerBN
 from qiskit.circuit.library import EfficientSU2, RealAmplitudes
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
@@ -448,7 +448,7 @@ def main():
     # Initialize a born machine
     bm = BornMachine(len(bn.graph.nodes)-1, n_blocks=1,
                      ansatz_type='RealAmplitudes')
-    # bm = OptimalBornMachine(bn)
+    bm = OptimalBornMachine(bn)
     # bm.print_circuit()
 
     # Classifier
