@@ -12,7 +12,7 @@ from qubayes.qubayes_tools import Node, Graph
 from qubayes.qubayes_tools import BayesNet
 from optimizers import DerivativeFreeOptimizer
 from classifiers import OptimalClassifier
-from generative_models import BornMachine
+from generative_models import BornMachine, RBM, AutoRegressiveModel
 
 
 class SimpleBN(BayesNet):
@@ -67,7 +67,7 @@ class SimpleBN2(BayesNet):
         return log_lik
 
 
-def plot_optimization_metrics(metrics, save=False):
+def plot_optimization_metrics(metrics, save_fln=None):
     fig, ax = plt.subplots(1, 2, figsize=(13, 4))
     ax[0].plot(metrics['kl_loss'], label='Loss according to Eq. 7')
     ax[0].set_xlabel('Epoch')
@@ -79,12 +79,11 @@ def plot_optimization_metrics(metrics, save=False):
     ax[1].set_xlabel('Epoch')
     ax[1].set_ylabel('TVD')
     ax[1].legend()
-    if save:
-        out_fln = fr'C:\Users\krf\projects\Quanco\git\qubayes\figs\vi_classifier\optimization.png'
-        plt.savefig(out_fln)
-        print(f'Saved figure to {out_fln}')
-    else:
+    if save_fln is None:
         plt.show()
+    else:
+        plt.savefig(save_fln)
+        print(f'Saved figure to {save_fln}')
 
 
 def main():
@@ -94,8 +93,8 @@ def main():
     # bn = SimpleBN2()
 
     # Initialize a born machine
-    bm = BornMachine(len(bn.graph.nodes)-1, n_blocks=1,
-                     ansatz_type='RealAmplitudes')
+    gen_model = BornMachine(len(bn.graph.nodes)-1, n_blocks=1)
+    # gen_model = RBM(n_visible=8, n_hidden=4, seed=42)
     # bm = OptimalBornMachine(bn)
     # bm.print_circuit()
 
@@ -105,9 +104,9 @@ def main():
 
     # Optimize it
     # opt = Optimizer(bm, bn, classifier, n_iterations=500, learning_rate=0.003)
-    opt = DerivativeFreeOptimizer(bm, bn, classifier, n_iterations=400, learning_rate=0.003)
+    opt = DerivativeFreeOptimizer(gen_model, bn, classifier, n_iterations=400, learning_rate=0.003)
     bm_opt, metrics = opt.optimize()
-    plot_optimization_metrics(metrics, save=0)
+    plot_optimization_metrics(metrics)
     return
 
 

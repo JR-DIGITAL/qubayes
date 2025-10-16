@@ -122,9 +122,10 @@ class DerivativeFreeOptimizer(object):
         self.params = None
 
     def compute_kl_loss(self, theta_values):
+        # An objective function takes parameters as input and outputs the loss.
         n_samples = 1000
-        self.born_machine.params = theta_values
-        samples = self.born_machine.sample(n_samples, return_samples=True)
+        self.born_machine.set_params(theta_values)
+        samples = self.born_machine.sample(n_samples)
         q_bm = self.born_machine.q_bm
         p_prior = self.bayes_net.compute_p_prior()
         logliks = self.bayes_net.compute_log_likelihood(samples)

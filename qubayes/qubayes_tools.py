@@ -863,3 +863,61 @@ class BayesNet(object):
         # Map back to 2D indices
         samples = np.array([np.array(np.unravel_index(i, posterior.shape), dtype=int) for i in sampled_indices])
         return samples
+
+
+def counts_to_cpd(counts, reverse=True):
+    """
+    Convert Qiskit measurement counts into a conditional probability distribution (CPD) table.
+
+    Parameters
+    ----------
+    counts : dict
+        Dictionary of measurement outcomes from a Qiskit experiment, typically obtained via:
+        `result.get_counts(circuit)`.
+        Example: {'111': 137, '101': 136, '010': 118}
+        Each key is a bitstring outcome, and each value is the number of times that outcome was observed.
+
+    reverse : bool, optional (default=True)
+        Whether to reverse the bitstring order when mapping to array indices.
+        Qiskit typically returns results in little-endian order, so reversing may be required
+        to match the logical qubit ordering (e.g., from most- to least-significant qubit).
+
+    Returns
+    -------
+    cpd : np.ndarray
+        A multidimensional array of shape (2, 2, ..., 2) with one axis per qubit.
+        Each entry represents the probability of observing a particular bitstring outcome.
+        The axes correspond to the qubit order (reversed if `reverse=True`).
+
+    Example
+    -------
+    >>> counts = {'111': 137, '101': 136, '010': 118}
+    >>> cpd = counts_to_cpd(counts)
+    >>> cpd.shape
+    (2, 2, 2)
+    >>> np.sum(cpd)
+    1.0
+    """
+
+    # Number of qubits (i.e., bits per measurement string)
+    n_dim = len(next(iter(counts)))  # more efficient than converting to list
+
+    # Total number of shots (samples)
+    n_samples = sum(counts.values())
+
+    # Initialize the CPD array with zeros for all possible 2^n states
+    cpd = np.zeros((2,) * n_dim, dtype=float)
+
+    # Precompute list of all possible bit combinations (e.g., (0,0,0), (0,0,1), ...)
+    for bits in itertools.product([0, 1], repeat=n_dim):
+        # Reverse index if requested (to correct endianness)
+        idx = bits[::-1] if reverse else bits
+
+        # Convert bit tuple to string key, e.g. (1,0,1) -> '101'
+        key = ''.join(map(str, idx))
+
+        # Assign normalized probability if key was observed
+        if key in counts:
+            cpd[bits] = counts[key] / n_samples
+
+    return cpd
